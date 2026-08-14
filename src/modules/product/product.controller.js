@@ -2,21 +2,59 @@ const { Product, Vendor } = require('../../models');
 
 const getProducts = async (req, res) => {
   try {
+    const { Op } = require('sequelize');
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    const stockStatus = req.query.stockStatus || 'All'; // 'All', 'In Stock', 'Out of Stock', 'Low Stock'
+
     const whereClause = {};
+
+    // Role filtering
     if (req.user && req.user.role === 'vendor') {
       whereClause.vendor_id = req.user.id;
+    } else if (req.user && req.user.role === 'admin') {
+      whereClause.vendor_id = null;
     }
 
-    const products = await Product.findAll({
+    // Search filtering
+    if (search) {
+      whereClause[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { category: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Stock filtering
+    if (stockStatus === 'In Stock') {
+      whereClause.stock = { [Op.gt]: 0 };
+    } else if (stockStatus === 'Out of Stock') {
+      whereClause.stock = 0;
+    } else if (stockStatus === 'Low Stock') {
+      whereClause.stock = { [Op.between]: [1, 9] };
+    }
+
+    const offset = (page - 1) * limit;
+
+    const { count, rows: products } = await Product.findAndCountAll({
       where: whereClause,
       include: [
         { model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }
       ],
-      order: [
-        ['auto_id', 'DESC']
-      ]
+      order: [['auto_id', 'DESC']],
+      limit,
+      offset
     });
-    res.status(200).json(products);
+
+    res.status(200).json({
+      data: products,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit) || 1
+      }
+    });
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ message: 'Server error while fetching products' });
@@ -25,8 +63,13 @@ const getProducts = async (req, res) => {
 
 const createProduct = async (req, res) => {
   try {
-    const { name, category, base_price, discount, stock, banner, description, status, admin_commission } = req.body;
+    const { name, category, base_price, discount, stock, description, status, admin_commission } = req.body;
     
+    let banner = req.body.banner || '';
+    if (req.file) {
+      banner = `/uploads/products/${req.file.filename}`;
+    }
+
     let vendor_id = null;
     let final_admin_commission = 0;
 
@@ -58,8 +101,12 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const updateData = { ...req.body };
     
+    if (req.file) {
+      updateData.banner = `/uploads/products/${req.file.filename}`;
+    }
+
     const whereClause = { id };
     if (req.user && req.user.role === 'vendor') {
       whereClause.vendor_id = req.user.id;

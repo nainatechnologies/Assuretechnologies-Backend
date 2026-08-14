@@ -4,14 +4,45 @@ const Partner = require('../partner/partner.model');
 const PartnerType = require('../partner/partnerType.model');
 const PricingType = require('../partner/pricingType.model');
 const { hashPassword } = require('../../utils/hash');
+const { Op, Sequelize } = require('sequelize');
 
 const getVendors = async (req, res) => {
   try {
-    const vendors = await Vendor.findAll({
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+    if (search) {
+      whereClause[Op.or] = [
+        { business_name: { [Op.like]: `%${search}%` } },
+        { full_name: { [Op.like]: `%${search}%` } },
+        { mobile: { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } },
+        { pincode: { [Op.like]: `%${search}%` } },
+        { gst_number: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    const { count, rows } = await Vendor.findAndCountAll({
+      where: whereClause,
       attributes: { exclude: ['password_hash'] },
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset
     });
-    res.status(200).json({ success: true, data: vendors });
+    
+    res.status(200).json({ 
+      success: true, 
+      data: rows,
+      pagination: {
+        totalItems: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit
+      }
+    });
   } catch (error) {
     console.error('Error fetching vendors:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
@@ -20,11 +51,40 @@ const getVendors = async (req, res) => {
 
 const getTechnicians = async (req, res) => {
   try {
-    const technicians = await Technician.findAll({
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+    if (search) {
+      whereClause[Op.or] = [
+        { full_name: { [Op.like]: `%${search}%` } },
+        { mobile: { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } },
+        Sequelize.where(Sequelize.cast(Sequelize.col('service_pincodes'), 'CHAR'), { [Op.like]: `%${search}%` }),
+        Sequelize.where(Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'), { [Op.like]: `%${search}%` })
+      ];
+    }
+
+    const { count, rows } = await Technician.findAndCountAll({
+      where: whereClause,
       attributes: { exclude: ['password_hash'] },
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset
     });
-    res.status(200).json({ success: true, data: technicians });
+    
+    res.status(200).json({ 
+      success: true, 
+      data: rows,
+      pagination: {
+        totalItems: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit
+      }
+    });
   } catch (error) {
     console.error('Error fetching technicians:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
@@ -57,9 +117,14 @@ const createVendor = async (req, res) => {
 
     const password_hash = await hashPassword(password);
     
+    const aadhar_proof = req.files && req.files.aadhar_proof ? '/uploads/vendors/' + req.files.aadhar_proof[0].filename : null;
+    const pan_proof = req.files && req.files.pan_proof ? '/uploads/vendors/' + req.files.pan_proof[0].filename : null;
+    const shop_photo = req.files && req.files.shop_photo ? '/uploads/vendors/' + req.files.shop_photo[0].filename : null;
+
     const vendor = await Vendor.create({
       email, mobile, password_hash, full_name, business_name, address, gst_number,
       pincode, business_description, bank_account_details,
+      aadhar_proof, pan_proof, shop_photo,
       is_active: true
     });
 
@@ -82,10 +147,23 @@ const createTechnician = async (req, res) => {
 
     const password_hash = await hashPassword(password);
     
+    let parsed_service_pincodes = service_pincodes || [];
+    if (typeof parsed_service_pincodes === 'string') {
+      try { parsed_service_pincodes = JSON.parse(parsed_service_pincodes); } catch (e) { parsed_service_pincodes = parsed_service_pincodes.split(','); }
+    }
+    let parsed_services_provided = services_provided || [];
+    if (typeof parsed_services_provided === 'string') {
+      try { parsed_services_provided = JSON.parse(parsed_services_provided); } catch (e) { parsed_services_provided = parsed_services_provided.split(','); }
+    }
+
+    const id_proof = req.files && req.files.id_proof ? '/uploads/technicians/' + req.files.id_proof[0].filename : null;
+    const noc_document = req.files && req.files.noc_document ? '/uploads/technicians/' + req.files.noc_document[0].filename : null;
+
     const technician = await Technician.create({
       email, mobile, password_hash, full_name, address,
-      service_pincodes: service_pincodes || [],
-      services_provided: services_provided || [],
+      service_pincodes: parsed_service_pincodes,
+      services_provided: parsed_services_provided,
+      id_proof, noc_document,
       is_active: true
     });
 

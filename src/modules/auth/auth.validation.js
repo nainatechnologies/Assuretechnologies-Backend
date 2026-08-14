@@ -90,8 +90,8 @@ const technicianRegisterSchema = z.object({
   password: commonValidations.strictPassword,
   full_name: commonValidations.name,
   address: commonValidations.address,
-  service_pincodes: z.array(z.string()).optional(),
-  services_provided: z.array(z.string()).optional(),
+  service_pincodes: z.any().optional(),
+  services_provided: z.any().optional(),
 });
 
 const droneRegisterSchema = z.object({

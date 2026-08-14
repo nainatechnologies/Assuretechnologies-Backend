@@ -9,6 +9,9 @@ router.use(authMiddleware(['admin']));
 
 const { validateRequest } = require('../../middleware/validate.middleware');
 const authSchemas = require('../auth/auth.validation');
+const createUpload = require('../../middleware/upload');
+const uploadVendor = createUpload('vendors');
+const uploadTechnician = createUpload('technicians');
 
 // Provider fetch endpoints
 router.get('/vendors', adminController.getVendors);
@@ -16,8 +19,8 @@ router.get('/technicians', adminController.getTechnicians);
 router.get('/partners', adminController.getPartners);
 
 // Provider creation endpoints
-router.post('/vendors', validateRequest(authSchemas.vendorRegisterSchema), adminController.createVendor);
-router.post('/technicians', validateRequest(authSchemas.technicianRegisterSchema), adminController.createTechnician);
+router.post('/vendors', uploadVendor.fields([{ name: 'aadhar_proof', maxCount: 1 }, { name: 'pan_proof', maxCount: 1 }, { name: 'shop_photo', maxCount: 1 }]), validateRequest(authSchemas.vendorRegisterSchema), adminController.createVendor);
+router.post('/technicians', uploadTechnician.fields([{ name: 'id_proof', maxCount: 1 }, { name: 'noc_document', maxCount: 1 }]), validateRequest(authSchemas.technicianRegisterSchema), adminController.createTechnician);
 router.post('/partners', validateRequest(authSchemas.partnerRegisterSchema), adminController.createPartner);
 
 // Partner Types
