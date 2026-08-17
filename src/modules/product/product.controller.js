@@ -4,9 +4,11 @@ const getProducts = async (req, res) => {
   try {
     const { Op } = require('sequelize');
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    let limit = parseInt(req.query.limit) || 10;
+    if (limit > 100) limit = 100; // Cap to prevent DoS
     const search = req.query.search || '';
     const stockStatus = req.query.stockStatus || 'All'; // 'All', 'In Stock', 'Out of Stock', 'Low Stock'
+    const sort = req.query.sort || 'popular';
 
     const whereClause = {};
 
@@ -34,6 +36,16 @@ const getProducts = async (req, res) => {
       whereClause.stock = { [Op.between]: [1, 9] };
     }
 
+    let orderClause = [['auto_id', 'DESC']];
+
+    if (sort === 'price-low') {
+      orderClause = [[Product.sequelize.literal('(base_price - (base_price * (COALESCE(discount, 0) / 100)))'), 'ASC']];
+    } else if (sort === 'price-high') {
+      orderClause = [[Product.sequelize.literal('(base_price - (base_price * (COALESCE(discount, 0) / 100)))'), 'DESC']];
+    } else if (sort === 'discount') {
+      orderClause = [['discount', 'DESC']];
+    }
+
     const offset = (page - 1) * limit;
 
     const { count, rows: products } = await Product.findAndCountAll({
@@ -41,13 +53,29 @@ const getProducts = async (req, res) => {
       include: [
         { model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }
       ],
-      order: [['auto_id', 'DESC']],
+      order: orderClause,
       limit,
       offset
     });
 
+
+    const formattedProducts = products.map(p => {
+      const product = p.toJSON ? p.toJSON() : p;
+      const base = parseFloat(product.base_price) || 0;
+      const disc = parseFloat(product.discount) || 0;
+      const finalPrice = base - (base * (disc / 100));
+
+      return {
+        ...product,
+        originalPrice: base,
+        price: finalPrice,
+        service: product.category || 'General',
+        image: product.banner ? (product.banner.startsWith('http') || product.banner.startsWith('blob:') ? product.banner : `http://localhost:5000${product.banner.startsWith('/') ? '' : '/'}${product.banner}`) : 'https://placehold.co/300x200?text=No+Image'
+      };
+    });
+
     res.status(200).json({
-      data: products,
+      data: formattedProducts,
       pagination: {
         total: count,
         page,

@@ -8,6 +8,8 @@ const PricingType = require('../modules/partner/pricingType.model');
 const Product = require('../modules/product/product.model');
 const Order = require('../modules/order/order.model');
 const OrderItem = require('../modules/order/orderItem.model');
+const Cart = require('../modules/cart/cart.model');
+const CartItem = require('../modules/cart/cartItem.model');
 
 module.exports = {
   Admin,
@@ -20,4 +22,16 @@ module.exports = {
   Product,
   Order,
   OrderItem,
+  Cart,
+  CartItem,
 };
+
+Customer.hasOne(Cart, { foreignKey: 'customer_id' });
+Cart.belongsTo(Customer, { foreignKey: 'customer_id' });
+
+Cart.hasMany(CartItem, { foreignKey: 'cart_id', as: 'items' });
+CartItem.belongsTo(Cart, { foreignKey: 'cart_id' });
+
+Product.hasMany(CartItem, { foreignKey: 'product_id' });
+CartItem.belongsTo(Product, { foreignKey: 'product_id' });
+

@@ -46,9 +46,17 @@ app.get('/', (req, res) => {
 const authRoutes = require('./modules/auth/auth.routes');
 const adminRoutes = require('./modules/admin/admin.routes');
 const vendorRoutes = require('./modules/vendor/vendor.routes');
+const productRoutes = require('./modules/product/product.routes');
+const orderRoutes = require('./modules/order/order.routes');
+const cartRoutes = require('./modules/cart/cart.routes');
+
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/vendor', vendorRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/cart', cartRoutes);
+
 
 module.exports = app;
