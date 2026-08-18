@@ -49,6 +49,7 @@ const vendorRoutes = require('./modules/vendor/vendor.routes');
 const productRoutes = require('./modules/product/product.routes');
 const orderRoutes = require('./modules/order/order.routes');
 const cartRoutes = require('./modules/cart/cart.routes');
+const invoiceRoutes = require('./modules/invoice/invoice.routes');
 
 
 app.use('/api/auth', authRoutes);
@@ -57,6 +58,7 @@ app.use('/api/vendor', vendorRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 
 module.exports = app;

@@ -3,7 +3,7 @@ const { Order, OrderItem, Product, Customer, Vendor } = require('../../models');
 
 const createOrder = async (req, res) => {
   try {
-    const { items, customer_name, customer_contact, customer_address, payment_status } = req.body;
+    const { items, customer_name, customer_contact, customer_address, payment_status, company_name, gst_number } = req.body;
     let customer_id = null;
 
     if (req.user && req.user.role === 'customer') {
@@ -40,7 +40,15 @@ const createOrder = async (req, res) => {
       });
     }
 
-    const order_number = 'ORD' + Date.now() + Math.floor(Math.random() * 1000);
+    const now = new Date();
+    const datePart = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
+    const timePart = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
+    const randomPart = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+    const order_number = 'ORD' + datePart + timePart + randomPart;
+
+    const subtotal_amount = total_amount;
+    const tax_amount = parseFloat((subtotal_amount * 0.18).toFixed(2));
+    const final_total = subtotal_amount + tax_amount;
 
     const order = await Order.create({
       order_number,
@@ -48,7 +56,11 @@ const createOrder = async (req, res) => {
       customer_name,
       customer_contact,
       customer_address,
-      total_amount,
+      company_name,
+      gst_number,
+      subtotal_amount,
+      tax_amount,
+      total_amount: final_total,
       status: 'NEW',
       payment_status: payment_status || 'PENDING'
     });
@@ -68,12 +80,27 @@ const createOrder = async (req, res) => {
 
 const getOrders = async (req, res) => {
   try {
+    const whereClause = {};
+    if (req.user && req.user.role === 'customer') {
+      whereClause.customer_id = req.user.id;
+    }
+    
+    let itemWhereClause = undefined;
+    let requiredVendor = false;
+    if (req.user && req.user.role === 'vendor') {
+      itemWhereClause = { vendor_id: req.user.id };
+      requiredVendor = true;
+    }
+    
     const orders = await Order.findAll({
+      where: whereClause,
       include: [
         { model: Customer, as: 'customer', attributes: ['id', 'full_name', 'email', 'mobile'] },
         { 
           model: OrderItem, 
           as: 'items',
+          where: itemWhereClause,
+          required: requiredVendor,
           include: [
             { model: Product, as: 'product', attributes: ['id', 'name', 'category'] },
             { model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }
@@ -88,7 +115,6 @@ const getOrders = async (req, res) => {
     res.status(500).json({ message: 'Server error while fetching orders' });
   }
 };
-
 const splitOrderItem = async (req, res) => {
   try {
     const { orderId, itemId } = req.params;
@@ -164,3 +190,5 @@ module.exports = {
   getOrders,
   splitOrderItem
 };
+
+

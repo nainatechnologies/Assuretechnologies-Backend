@@ -201,4 +201,56 @@ const resetPassword = async (req, res) => {
   }
 };
 
-module.exports = { register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword };
+
+const CustomerAddress = require('../customer/customerAddress.model');
+
+const getAddresses = async (req, res) => {
+  try {
+    const customer_id = req.user.id;
+    const customer = await Customer.findByPk(customer_id);
+    const addresses = await CustomerAddress.findAll({ where: { customer_id } });
+    
+    let allAddresses = [];
+    if (customer && customer.full_address) {
+      allAddresses.push({
+        id: 'default',
+        full_name: customer.full_name,
+        mobile_number: customer.mobile,
+        pincode: customer.pincode,
+        address_line1: customer.full_address,
+        address_line2: '',
+        landmark: '',
+        city: '',
+        state: customer.state_name,
+        isDefault: true
+      });
+    }
+    
+    allAddresses = allAddresses.concat(addresses);
+    res.status(200).json({ success: true, data: allAddresses });
+  } catch (error) {
+    console.error('Error fetching addresses:', error);
+    res.status(500).json({ success: false, message: 'Server error fetching addresses' });
+  }
+};
+
+const addAddress = async (req, res) => {
+  try {
+    const customer_id = req.user.id;
+    const { full_name, mobile_number, pincode, address_line1, address_line2, landmark, city, state } = req.body;
+    
+    const newAddress = await CustomerAddress.create({
+      customer_id,
+      full_name, mobile_number, pincode, address_line1, address_line2, landmark, city, state
+    });
+    
+    res.status(201).json({ success: true, message: 'Address added successfully', data: newAddress });
+  } catch (error) {
+    console.error('Error adding address:', error);
+    res.status(500).json({ success: false, message: 'Server error adding address' });
+  }
+};
+
+module.exports = {
+  getAddresses,
+  addAddress, register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword };

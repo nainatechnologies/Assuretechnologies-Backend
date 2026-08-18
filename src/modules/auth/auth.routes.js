@@ -46,4 +46,11 @@ router.post('/technician/login', validateRequest(authSchemas.partnerLoginSchema)
 // Partner Auth
 router.post('/partner/login', validateRequest(authSchemas.partnerLoginSchema), partnerAuth.login);
 
+
+// Customer Address routes
+const authMiddleware = require('../../middleware/authMiddleware');
+router.get('/customer/addresses', authMiddleware(['customer']), customerAuth.getAddresses);
+router.post('/customer/addresses', authMiddleware(['customer']), customerAuth.addAddress);
+
 module.exports = router;
+

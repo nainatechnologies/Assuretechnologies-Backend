@@ -32,4 +32,4 @@ node_modules/
 *.swo
 
 # Uploads / Public assets generated dynamically
-public/uploads/
+# public/uploads/

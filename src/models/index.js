@@ -10,6 +10,8 @@ const Order = require('../modules/order/order.model');
 const OrderItem = require('../modules/order/orderItem.model');
 const Cart = require('../modules/cart/cart.model');
 const CartItem = require('../modules/cart/cartItem.model');
+const Invoice = require('../modules/invoice/invoice.model');
+const InvoiceItem = require('../modules/invoice/invoiceItem.model');
 
 module.exports = {
   Admin,
@@ -24,6 +26,8 @@ module.exports = {
   OrderItem,
   Cart,
   CartItem,
+  Invoice,
+  InvoiceItem,
 };
 
 Customer.hasOne(Cart, { foreignKey: 'customer_id' });
@@ -35,3 +39,9 @@ CartItem.belongsTo(Cart, { foreignKey: 'cart_id' });
 Product.hasMany(CartItem, { foreignKey: 'product_id' });
 CartItem.belongsTo(Product, { foreignKey: 'product_id' });
 
+
+Invoice.hasMany(InvoiceItem, { foreignKey: 'invoice_id', as: 'items' });
+InvoiceItem.belongsTo(Invoice, { foreignKey: 'invoice_id' });
+
+Invoice.belongsTo(Vendor, { foreignKey: 'vendor_id', as: 'vendor' });
+Vendor.hasMany(Invoice, { foreignKey: 'vendor_id' });

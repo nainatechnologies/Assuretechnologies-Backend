@@ -34,6 +34,22 @@ const Order = sequelize.define('Order', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  company_name: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  gst_number: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  subtotal_amount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
+  },
+  tax_amount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
+  },
   total_amount: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false
