@@ -16,7 +16,17 @@ const getAdminInvoices = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: invoices });
 });
 
+const deleteAdminInvoice = async (req, res) => {
+  try {
+    await invoiceService.deleteAdminInvoice(req.params.id);
+    res.status(200).json({ success: true, message: 'Invoice deleted successfully' });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
+  deleteAdminInvoice,
   createVendorInvoice,
   getAdminInvoices
 };

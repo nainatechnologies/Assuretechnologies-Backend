@@ -2,14 +2,6 @@ const { Invoice, InvoiceItem, Order, OrderItem, Vendor, Product, Customer } = re
 const AppError = require('../../utils/AppError');
 
 const createVendorInvoice = async (vendor_id, orderId, items) => {
-  const orderItems = await OrderItem.findAll({
-    where: { order_id: orderId, vendor_id }
-  });
-
-  if (!orderItems || orderItems.length === 0) {
-    throw new AppError('Order items not found for this vendor', 404);
-  }
-
   const order = await Order.findOne({
     where: { order_number: orderId },
     include: [{ model: Customer, as: 'customer' }]
@@ -17,6 +9,14 @@ const createVendorInvoice = async (vendor_id, orderId, items) => {
 
   if (!order) {
     throw new AppError('Order not found', 404);
+  }
+
+  const orderItems = await OrderItem.findAll({
+    where: { order_id: order.id, vendor_id }
+  });
+
+  if (!orderItems || orderItems.length === 0) {
+    throw new AppError('Order items not found for this vendor', 404);
   }
 
   const invoice_number = 'INV' + Date.now() + Math.floor(Math.random() * 1000);
@@ -85,7 +85,14 @@ const getAdminInvoices = async () => {
   });
 };
 
+const deleteAdminInvoice = async (id) => {
+  const invoice = await Invoice.findByPk(id);
+  if (!invoice) throw new AppError('Invoice not found', 404);
+  await invoice.destroy();
+};
+
 module.exports = {
+  deleteAdminInvoice,
   createVendorInvoice,
   getAdminInvoices
 };
