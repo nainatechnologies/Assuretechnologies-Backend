@@ -11,4 +11,6 @@ router.post('/vendor/orders/:orderId', authMiddleware(['vendor']), validateReque
 // Admin routes
 router.get('/admin', authMiddleware(['admin']), invoiceController.getAdminInvoices);
 
+router.delete('/admin/:id', authMiddleware(['admin']), invoiceController.deleteAdminInvoice);
+
 module.exports = router;
