@@ -60,5 +60,9 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/invoices', invoiceRoutes);
 
+// Global Error Handler (must be the last middleware)
+const errorMiddleware = require('./middleware/errorMiddleware');
+app.use(errorMiddleware);
 
 module.exports = app;
+

@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 
 const adminAuth = require('./adminAuth.controller');
@@ -9,6 +9,7 @@ const partnerAuth = require('./partnerAuth.controller');
 
 const { validateRequest } = require('../../middleware/validate.middleware');
 const authSchemas = require('./auth.validation');
+const customerSchemas = require('../customer/customer.validation');
 
 // Admin Auth
 router.post('/admin/login', validateRequest(authSchemas.adminLoginSchema), adminAuth.login);
@@ -50,7 +51,6 @@ router.post('/partner/login', validateRequest(authSchemas.partnerLoginSchema), p
 // Customer Address routes
 const authMiddleware = require('../../middleware/authMiddleware');
 router.get('/customer/addresses', authMiddleware(['customer']), customerAuth.getAddresses);
-router.post('/customer/addresses', authMiddleware(['customer']), customerAuth.addAddress);
+router.post('/customer/addresses', authMiddleware(['customer']), validateRequest(customerSchemas.addAddressSchema), customerAuth.addAddress);
 
 module.exports = router;
-

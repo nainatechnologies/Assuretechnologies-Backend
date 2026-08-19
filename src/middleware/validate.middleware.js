@@ -1,39 +1,74 @@
 const { ZodError } = require("zod");
 
+/**
+ * Generic validation middleware using Zod.
+ * @param {import("zod").ZodSchema} schema - The Zod schema to validate against.
+ */
 const validateRequest = (schema) => {
   return (req, res, next) => {
     try {
-      console.log('--- validateRequest ---');
-      console.log('req exists?', !!req);
-      console.log('req type?', typeof req);
+      // Validate the body, query, and params against the schema
+      // Usually, we validate req.body, but you can extend this to req.query/params if needed in the schema object structure
       const parsedData = schema.parse(req.body);
+      
+      // Replace req.body with the sanitized/parsed data from Zod
       req.body = parsedData;
+      
       next();
     } catch (error) {
-      if (error instanceof ZodError || (error && error.issues)) {
-        const issues = error.issues || error.errors || [];
-        const errorMessages = issues.map(err => err.message).join(', ');
-        const structuredErrors = issues.map(err => ({
-          field: err.path ? err.path.join('.') : 'unknown',
-          message: err.message
-        }));
-        return res.status(400).json({ 
-          success: false, 
-          message: errorMessages || "Validation failed", 
-          errors: structuredErrors 
-        });
+      if (error instanceof ZodError) {
+        // We pass the ZodError to our global error handler to format nicely
+        return next(error);
       }
+      next(error);
+    }
+  };
+};
+
+/**
+ * Generic validation middleware for URL Query Parameters using Zod.
+ * @param {import("zod").ZodSchema} schema - The Zod schema to validate against.
+ */
+const validateQuery = (schema) => {
+  return (req, res, next) => {
+    try {
+      // Validate and coerce the query params
+      const parsedData = schema.parse(req.query);
       
-      console.error("Validation Middleware Error:", error);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Internal validation error: ' + (error.message || 'Unknown error'),
-        stack: error.stack
-      });
+      // Replace req.query with the sanitized/coerced data
+      req.query = parsedData;
+      
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return next(error);
+      }
+      next(error);
+    }
+  };
+};
+
+/**
+ * Generic validation middleware for URL Parameters using Zod.
+ * @param {import("zod").ZodSchema} schema - The Zod schema to validate against.
+ */
+const validateParams = (schema) => {
+  return (req, res, next) => {
+    try {
+      const parsedData = schema.parse(req.params);
+      req.params = parsedData;
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return next(error);
+      }
+      next(error);
     }
   };
 };
 
 module.exports = {
-  validateRequest
+  validateRequest,
+  validateQuery,
+  validateParams
 };

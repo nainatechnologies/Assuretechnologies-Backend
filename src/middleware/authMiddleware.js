@@ -24,6 +24,7 @@ const authMiddleware = (allowedRoles = []) => {
       }
 
       // 2. If Bearer token didn't yield a valid authorized user, check cookies
+      console.log('ValidUser is', validUser, 'Allowed Roles', allowedRoles, 'req.user', req.user);
       if (!validUser) {
         const possibleCookies = [
           req.cookies?.admin_token,

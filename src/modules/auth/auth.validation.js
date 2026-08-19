@@ -1,117 +1,143 @@
-const { z } = require("zod");
-const { commonValidations } = require("../../validations/common.validation");
+﻿const { z } = require('zod');
+
+// Inline validation rules
+const mobileRegex = /^[6-9]\d{9}$/;
+const mobileErrorMsg = 'Please enter a valid 10-digit mobile number';
+const mobileValidation = z.string({ required_error: 'Please provide a mobile number', invalid_type_error: mobileErrorMsg }).trim().regex(mobileRegex, mobileErrorMsg);
+
+const otpValidation = z.string({ required_error: 'Please provide the OTP', invalid_type_error: 'Please enter a valid OTP' }).trim().length(6, 'Please enter exactly 6 numbers for the OTP');
+
+const strictPasswordValidation = z.string({ required_error: 'Password is required', invalid_type_error: 'Please enter a valid password format' })
+  .min(8, 'Password must be at least 8 characters long')
+  .max(72, 'Password must be at most 72 characters long')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/\d/, 'Password must contain at least one number')
+  .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character');
+
+const loginPasswordValidation = z.string({ required_error: 'Please provide your password' }).min(1, 'Please provide your password');
+
+const emailValidation = z.string({ required_error: 'Email is required', invalid_type_error: 'Please enter a valid email format' })
+  .trim().toLowerCase().email('Please provide a valid email address').max(254, 'Email is too long');
+
+const pincodeValidation = z.string({ required_error: 'Pincode is required' }).trim().length(6, 'Pincode must be exactly 6 digits');
+
+const nameValidation = z.string({ required_error: 'Name is required' }).trim().min(3, 'Name must be at least 3 characters long').regex(/^[A-Za-z\s]+$/, 'Name can only contain letters and spaces');
+
+const addressValidation = z.string({ required_error: 'Address is required' }).trim().min(5, 'Address must be at least 5 characters long');
+
 
 const customerRegisterSchema = z.object({
-  mobile: commonValidations.mobile,
-  password: commonValidations.strictPassword,
-  full_name: commonValidations.name,
-  full_address: commonValidations.address,
-  pincode: commonValidations.pincode,
-  state_name: z.string().trim().min(2, "State name is required"),
-  email: commonValidations.email.optional().or(z.literal('')),
+  mobile: mobileValidation,
+  password: strictPasswordValidation,
+  full_name: nameValidation,
+  full_address: addressValidation,
+  pincode: pincodeValidation,
+  state_name: z.string().trim().min(2, 'State name is required'),
+  email: emailValidation,
 });
 
 const customerLoginSchema = z.object({
-  mobile: commonValidations.mobile.optional(),
-  email: commonValidations.email.optional(),
-  password: commonValidations.loginPassword,
+  mobile: mobileValidation.optional(),
+  email: emailValidation.optional(),
+  password: loginPasswordValidation,
 }).refine(data => data.mobile || data.email, {
-  message: "Either mobile or email is required",
-  path: ["mobile"]
+  message: 'Either mobile or email is required',
+  path: ['mobile']
 });
 
 const verifyOtpSchema = z.object({
-  mobile: commonValidations.mobile,
-  otp: commonValidations.otp,
+  mobile: mobileValidation,
+  otp: otpValidation,
 });
 
 const adminLoginSchema = z.object({
-  email: commonValidations.email,
-  password: commonValidations.loginPassword,
+  email: emailValidation,
+  password: loginPasswordValidation,
 });
 
 const vendorLoginSchema = z.object({
-  email: commonValidations.email,
-  password: commonValidations.loginPassword,
+  email: emailValidation,
+  password: loginPasswordValidation,
 });
 
 const partnerLoginSchema = z.object({
-  mobile: commonValidations.mobile.optional(),
-  email: commonValidations.email.optional(),
-  password: commonValidations.loginPassword,
+  mobile: mobileValidation.optional(),
+  email: emailValidation.optional(),
+  password: loginPasswordValidation,
 }).refine(data => data.mobile || data.email, {
-  message: "Either mobile or email is required",
-  path: ["mobile"]
+  message: 'Either mobile or email is required',
+  path: ['mobile']
 });
 
 const forgotPasswordSchema = z.object({
-  mobile: commonValidations.mobile.optional(),
-  email: commonValidations.email.optional(),
+  mobile: mobileValidation.optional(),
+  email: emailValidation.optional(),
 }).refine(data => data.mobile || data.email, {
-  message: "Either mobile or email is required",
-  path: ["mobile"]
+  message: 'Either mobile or email is required',
+  path: ['mobile']
 });
 
 const verifyResetOtpSchema = z.object({
-  mobile: commonValidations.mobile.optional(),
-  email: commonValidations.email.optional(),
-  otp: commonValidations.otp,
+  mobile: mobileValidation.optional(),
+  email: emailValidation.optional(),
+  otp: otpValidation,
 }).refine(data => data.mobile || data.email, {
-  message: "Either mobile or email is required",
-  path: ["mobile"]
+  message: 'Either mobile or email is required',
+  path: ['mobile']
 });
 
 const resetPasswordSchema = z.object({
-  mobile: commonValidations.mobile.optional(),
-  email: commonValidations.email.optional(),
-  otp: commonValidations.otp,
-  newPassword: commonValidations.strictPassword,
+  mobile: mobileValidation.optional(),
+  email: emailValidation.optional(),
+  otp: otpValidation,
+  newPassword: strictPasswordValidation,
 }).refine(data => data.mobile || data.email, {
-  message: "Either mobile or email is required",
-  path: ["mobile"]
+  message: 'Either mobile or email is required',
+  path: ['mobile']
 });
 
 const vendorRegisterSchema = z.object({
-  email: commonValidations.email,
-  mobile: commonValidations.mobile,
-  password: commonValidations.strictPassword,
-  full_name: commonValidations.name,
-  business_name: z.string().trim().min(3, "Business name is required"),
-  address: commonValidations.address,
-  gst_number: z.string().trim().length(15, "GST number must be 15 characters"),
-  pincode: z.string().optional(),
+  email: emailValidation,
+  mobile: mobileValidation,
+  password: strictPasswordValidation,
+  full_name: nameValidation,
+  business_name: z.string().trim().min(3, 'Business name is required'),
+  address: addressValidation,
+  gst_number: z.string().trim().regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i, 'Please enter a valid 15-character GST number (e.g. 22AAAAA0000A1Z5)'),
+  pincode: pincodeValidation.optional(),
   business_description: z.string().optional(),
   bank_account_details: z.string().optional(),
 });
 
 const technicianRegisterSchema = z.object({
-  email: commonValidations.email,
-  mobile: commonValidations.mobile,
-  password: commonValidations.strictPassword,
-  full_name: commonValidations.name,
-  address: commonValidations.address,
-  service_pincodes: z.any().optional(),
-  services_provided: z.any().optional(),
+  email: emailValidation,
+  mobile: mobileValidation,
+  password: strictPasswordValidation,
+  full_name: nameValidation,
+  address: addressValidation,
+  service_pincodes: z.array(z.string()).min(1, 'At least one service pincode is required'),
+  services_provided: z.array(z.string()).min(1, 'At least one service is required'),
 });
 
 const droneRegisterSchema = z.object({
-  email: commonValidations.email,
-  mobile: commonValidations.mobile,
-  password: commonValidations.strictPassword,
-  full_name: commonValidations.name,
-  address: commonValidations.address,
-  coverage_areas: z.array(z.string()).optional(),
-  services_provided: z.array(z.string()).optional(),
+  email: emailValidation,
+  mobile: mobileValidation,
+  password: strictPasswordValidation,
+  full_name: nameValidation,
+  address: addressValidation,
+  coverage_areas: z.array(z.string()).min(1, 'At least one coverage area is required'),
+  services_provided: z.array(z.string()).min(1, 'At least one service is required'),
 });
 
 const partnerRegisterSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  mobile: z.string().min(10, 'Mobile must be at least 10 digits'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  full_name: z.string().min(2, 'Full name is required'),
-  address: z.string().min(5, 'Address is required'),
-  coverage_areas: z.array(z.string()).optional(),
-  services_provided: z.array(z.string()).optional(),
+  email: emailValidation,
+  mobile: mobileValidation,
+  password: strictPasswordValidation,
+  full_name: nameValidation,
+  address: addressValidation,
+  coverage_areas: z.array(z.string()).min(1, 'At least one coverage area is required'),
+  services_provided: z.array(z.string()).min(1, 'At least one service is required'),
   partner_type_id: z.coerce.number().int().positive('Invalid partner type ID'),
   custom_field_values: z.record(z.any()).optional()
 });
@@ -131,3 +157,5 @@ module.exports = {
   droneRegisterSchema,
   partnerRegisterSchema
 };
+
+

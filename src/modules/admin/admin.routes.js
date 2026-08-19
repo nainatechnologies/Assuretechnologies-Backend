@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const adminController = require('./admin.controller');
 const productController = require('../product/product.controller');
@@ -9,6 +9,7 @@ router.use(authMiddleware(['admin']));
 
 const { validateRequest } = require('../../middleware/validate.middleware');
 const authSchemas = require('../auth/auth.validation');
+const adminSchemas = require('./admin.validation');
 const createUpload = require('../../middleware/upload');
 const uploadVendor = createUpload('vendors');
 const uploadTechnician = createUpload('technicians');
@@ -25,11 +26,11 @@ router.post('/partners', validateRequest(authSchemas.partnerRegisterSchema), adm
 
 // Partner Types
 router.get('/partner-types', adminController.getPartnerTypes);
-router.post('/partner-types', adminController.createPartnerType);
+router.post('/partner-types', validateRequest(adminSchemas.createPartnerTypeSchema), adminController.createPartnerType);
 
 // Pricing Types
 router.get('/pricing-types', adminController.getPricingTypes);
-router.post('/pricing-types', adminController.createPricingType);
+router.post('/pricing-types', validateRequest(adminSchemas.createPricingTypeSchema), adminController.createPricingType);
 
 // Products
 const productRoutes = require('../product/product.routes');
@@ -40,5 +41,3 @@ const orderRoutes = require('../order/order.routes');
 router.use('/orders', orderRoutes);
 
 module.exports = router;
-
-

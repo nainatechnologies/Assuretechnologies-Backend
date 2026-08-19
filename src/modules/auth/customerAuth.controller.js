@@ -1,256 +1,59 @@
-const Customer = require('../customer/customer.model');
-const { hashPassword, comparePassword } = require('../../utils/hash');
-const { generateToken } = require('../../utils/jwt');
+const customerAuthService = require('./customerAuth.service');
+const asyncHandler = require('../../utils/asyncHandler');
 
-const register = async (req, res) => {
-  try {
-    const { email, mobile, password, full_name, full_address, pincode, state_name } = req.body;
-    
-    if (!mobile || !password || !full_name || !full_address || !pincode || !state_name) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
+const register = asyncHandler(async (req, res) => {
+  const data = await customerAuthService.register(req.body);
+  res.status(201).json({ success: true, message: 'Registration successful. Please verify OTP.', data });
+});
 
-    const existingMobile = await Customer.findOne({ where: { mobile } });
-    if (existingMobile) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Validation failed',
-        errors: [{ field: 'mobile', message: 'This mobile number is already registered' }]
-      });
-    }
+const verifyOtp = asyncHandler(async (req, res) => {
+  const { mobile, otp } = req.body;
+  const data = await customerAuthService.verifyOtp(mobile, otp);
+  res.status(200).json({ success: true, message: 'OTP verified successfully', data });
+});
 
-    if (email) {
-      const existingEmail = await Customer.findOne({ where: { email } });
-      if (existingEmail) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Validation failed',
-          errors: [{ field: 'email', message: 'This email address is already registered' }]
-        });
-      }
-    }
+const login = asyncHandler(async (req, res) => {
+  const { mobile, email, password } = req.body;
+  const data = await customerAuthService.login(mobile, email, password);
+  
+  res.cookie('customer_token', data.token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
 
-    const password_hash = await hashPassword(password);
-    
-    const customer = await Customer.create({
-      email: email || null,
-      mobile,
-      password_hash,
-      full_name,
-      full_address,
-      pincode,
-      state_name,
-      is_mobile_verified: false // Needs OTP
-    });
+  res.status(200).json({ success: true, message: 'Login successful', data: { user: data.user } });
+});
 
-    res.status(201).json({ success: true, message: 'Registration successful. Please verify OTP.', data: { customerId: customer.id } });
-  } catch (error) {
-    console.error('Customer register error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error: ' + (error.message || 'Unknown error'), stack: error.stack });
-  }
-};
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { mobile, email } = req.body;
+  await customerAuthService.forgotPassword(mobile, email);
+  res.status(200).json({ success: true, message: 'OTP sent successfully. Please check your phone/email.' });
+});
 
-const verifyOtp = async (req, res) => {
-  try {
-    const { mobile, otp } = req.body;
-    
-    // MOCK OTP verification for development
-    if (otp !== '123456') {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
-    }
+const verifyResetOtp = asyncHandler(async (req, res) => {
+  const { mobile, email, otp } = req.body;
+  await customerAuthService.verifyResetOtp(mobile, email, otp);
+  res.status(200).json({ success: true, message: 'OTP verified successfully' });
+});
 
-    const customer = await Customer.findOne({ where: { mobile } });
-    if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
-    }
+const resetPassword = asyncHandler(async (req, res) => {
+  const { mobile, email, otp, newPassword } = req.body;
+  await customerAuthService.resetPassword(mobile, email, otp, newPassword);
+  res.status(200).json({ success: true, message: 'Password reset successfully' });
+});
 
-    customer.is_mobile_verified = true;
-    await customer.save();
+const getAddresses = asyncHandler(async (req, res) => {
+  const data = await customerAuthService.getAddresses(req.user.id);
+  res.status(200).json({ success: true, data });
+});
 
-    const token = generateToken({ id: customer.id, role: 'customer' });
-    const customerData = customer.toJSON();
-    delete customerData.password_hash;
-
-    res.status(200).json({ success: true, message: 'OTP verified successfully', data: { user: customerData, token } });
-  } catch (error) {
-    console.error('Customer OTP verify error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-const login = async (req, res) => {
-  try {
-    const { mobile, email, password } = req.body;
-    if ((!mobile && !email) || !password) {
-      return res.status(400).json({ success: false, message: 'Mobile/email and password are required' });
-    }
-
-    const whereClause = mobile ? { mobile } : { email };
-    const customer = await Customer.findOne({ where: whereClause });
-    
-    if (!customer) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
-    
-    if (!customer.is_mobile_verified) {
-      return res.status(403).json({ success: false, message: 'Please verify your mobile number first' });
-    }
-    if (!customer.is_active) {
-      return res.status(403).json({ success: false, message: 'Account is deactivated' });
-    }
-
-    const isMatch = await comparePassword(password, customer.password_hash);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    const token = generateToken({ id: customer.id, role: 'customer' });
-    const customerData = customer.toJSON();
-    delete customerData.password_hash;
-
-        res.cookie('customer_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-
-    res.status(200).json({ success: true, message: 'Login successful', data: { user: customerData } });
-  } catch (error) {
-    console.error('Customer login error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-const forgotPassword = async (req, res) => {
-  try {
-    const { mobile, email } = req.body;
-    if (!mobile && !email) {
-      return res.status(400).json({ success: false, message: 'Mobile or email is required' });
-    }
-
-    const whereClause = mobile ? { mobile } : { email };
-    const customer = await Customer.findOne({ where: whereClause });
-    
-    if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
-    }
-
-    // MOCK: In production, send SMS/Email with OTP here
-    res.status(200).json({ success: true, message: 'OTP sent successfully. Please check your phone/email.' });
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-const verifyResetOtp = async (req, res) => {
-  try {
-    const { mobile, email, otp } = req.body;
-    if ((!mobile && !email) || !otp) {
-      return res.status(400).json({ success: false, message: 'Mobile/email and OTP are required' });
-    }
-
-    // MOCK OTP verification
-    if (otp !== '123456') {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
-    }
-
-    const whereClause = mobile ? { mobile } : { email };
-    const customer = await Customer.findOne({ where: whereClause });
-    
-    if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
-    }
-
-    res.status(200).json({ success: true, message: 'OTP verified successfully' });
-  } catch (error) {
-    console.error('Verify reset OTP error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-const resetPassword = async (req, res) => {
-  try {
-    const { mobile, email, otp, newPassword } = req.body;
-    
-    if ((!mobile && !email) || !otp || !newPassword) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
-
-    // MOCK OTP verification again for security
-    if (otp !== '123456') {
-      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
-    }
-
-    const whereClause = mobile ? { mobile } : { email };
-    const customer = await Customer.findOne({ where: whereClause });
-    
-    if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
-    }
-
-    const password_hash = await hashPassword(newPassword);
-    customer.password_hash = password_hash;
-    await customer.save();
-
-    res.status(200).json({ success: true, message: 'Password reset successfully' });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-
-const CustomerAddress = require('../customer/customerAddress.model');
-
-const getAddresses = async (req, res) => {
-  try {
-    const customer_id = req.user.id;
-    const customer = await Customer.findByPk(customer_id);
-    const addresses = await CustomerAddress.findAll({ where: { customer_id } });
-    
-    let allAddresses = [];
-    if (customer && customer.full_address) {
-      allAddresses.push({
-        id: 'default',
-        full_name: customer.full_name,
-        mobile_number: customer.mobile,
-        pincode: customer.pincode,
-        address_line1: customer.full_address,
-        address_line2: '',
-        landmark: '',
-        city: '',
-        state: customer.state_name,
-        isDefault: true
-      });
-    }
-    
-    allAddresses = allAddresses.concat(addresses);
-    res.status(200).json({ success: true, data: allAddresses });
-  } catch (error) {
-    console.error('Error fetching addresses:', error);
-    res.status(500).json({ success: false, message: 'Server error fetching addresses' });
-  }
-};
-
-const addAddress = async (req, res) => {
-  try {
-    const customer_id = req.user.id;
-    const { full_name, mobile_number, pincode, address_line1, address_line2, landmark, city, state } = req.body;
-    
-    const newAddress = await CustomerAddress.create({
-      customer_id,
-      full_name, mobile_number, pincode, address_line1, address_line2, landmark, city, state
-    });
-    
-    res.status(201).json({ success: true, message: 'Address added successfully', data: newAddress });
-  } catch (error) {
-    console.error('Error adding address:', error);
-    res.status(500).json({ success: false, message: 'Server error adding address' });
-  }
-};
+const addAddress = asyncHandler(async (req, res) => {
+  const data = await customerAuthService.addAddress(req.user.id, req.body);
+  res.status(201).json({ success: true, message: 'Address added successfully', data });
+});
 
 module.exports = {
-  getAddresses,
-  addAddress, register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword };
+  register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword, getAddresses, addAddress
+};
