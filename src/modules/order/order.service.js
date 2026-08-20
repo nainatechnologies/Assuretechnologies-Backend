@@ -109,9 +109,14 @@ const getOrders = async (user) => {
 const splitOrderItem = async (orderId, itemId, splitData) => {
   const { newVendorId, qtyToTransfer } = splitData;
   
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) {
+    throw new AppError('Order not found', 404);
+  }
+  
   // Find original order item
   const originalItem = await OrderItem.findOne({
-    where: { id: itemId, order_id: orderId }
+    where: { id: itemId, order_id: order.id }
   });
   
   if (!originalItem) {
@@ -167,7 +172,54 @@ const getOrderById = async (orderId) => {
   return order;
 };
 
+const updateOrderStatus = async (orderId, updateData) => {
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) { throw new AppError('Order not found', 404); }
+  if (updateData.status) { order.status = updateData.status; }
+  if (updateData.payment_status) { order.payment_status = updateData.payment_status; }
+  await order.save();
+  return { message: 'Order status updated successfully', order };
+};
+
+const cancelOrder = async (orderId, userId) => {
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) { throw new AppError('Order not found', 404); }
+  if (order.customer_id !== userId) { throw new AppError('Not authorized to cancel this order', 403); }
+  if (order.status !== 'NEW' && order.status !== 'ACCEPTED') { throw new AppError('Order cannot be cancelled at this stage', 400); }
+  order.status = 'CANCELLED';
+  await order.save();
+  return { message: 'Order cancelled successfully', order };
+};
+
+const updateOrderTracking = async (orderId, trackingData, user) => {
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) { throw new AppError('Order not found', 404); }
+
+  if (user.role === 'vendor') {
+    const items = await OrderItem.findAll({ where: { order_id: order.id, vendor_id: user.id } });
+    if (!items.length) { throw new AppError('Not authorized to update tracking for this order', 403); }
+    await Promise.all(items.map(item => {
+      item.transport_name = trackingData.transportName;
+      item.tracking_id = trackingData.trackingId;
+      item.tracking_url = trackingData.trackUrl;
+      return item.save();
+    }));
+  } else if (user.role === 'admin') {
+    order.transport_name = trackingData.transportName;
+    order.tracking_id = trackingData.trackingId;
+    order.tracking_url = trackingData.trackUrl;
+    await order.save();
+  } else {
+    throw new AppError('Not authorized to update tracking', 403);
+  }
+
+  return { message: 'Tracking info updated successfully', order };
+};
+
 module.exports = {
+  updateOrderTracking,
+  cancelOrder,
+  updateOrderStatus,
   createOrder,
   getOrders,
   splitOrderItem,
