@@ -61,6 +61,18 @@ const Order = sequelize.define('Order', {
   payment_status: {
     type: DataTypes.ENUM('PENDING', 'PAID'),
     defaultValue: 'PENDING'
+  },
+  transport_name: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  tracking_id: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  tracking_url: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   timestamps: true,

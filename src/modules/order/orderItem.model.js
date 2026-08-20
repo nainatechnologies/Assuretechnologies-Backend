@@ -52,6 +52,18 @@ const OrderItem = sequelize.define('OrderItem', {
   subtotal: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false
+  },
+  transport_name: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  tracking_id: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  tracking_url: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   timestamps: true,

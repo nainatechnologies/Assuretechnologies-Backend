@@ -22,3 +22,21 @@ exports.getOrderById = asyncHandler(async (req, res) => {
   const order = await orderService.getOrderById(orderId);
   res.status(200).json(order);
 });
+
+exports.updateOrderStatus = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.updateOrderStatus(orderId, req.body);
+  res.status(200).json(result);
+});
+
+exports.cancelOrder = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.cancelOrder(orderId, req.user.id);
+  res.status(200).json(result);
+});
+
+exports.updateOrderTracking = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.updateOrderTracking(orderId, req.body, req.user);
+  res.status(200).json(result);
+});
