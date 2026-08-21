@@ -95,7 +95,7 @@ const getOrders = async (user) => {
         where: itemWhereClause,
         required: requiredVendor,
         include: [
-          { model: Product, as: 'product', attributes: ['id', 'name', 'category'] },
+          { model: Product, as: 'product', attributes: ['id', 'name', 'category', 'banner'] },
           { model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }
         ]
       }
@@ -181,10 +181,10 @@ const updateOrderStatus = async (orderId, updateData) => {
   return { message: 'Order status updated successfully', order };
 };
 
-const cancelOrder = async (orderId, userId) => {
-  const order = await Order.findOne({ where: { order_number: orderId } });
-  if (!order) { throw new AppError('Order not found', 404); }
-  if (order.customer_id !== userId) { throw new AppError('Not authorized to cancel this order', 403); }
+const cancelOrder = async (orderId, user) => {
+    const order = await Order.findOne({ where: { order_number: orderId } });
+    if (!order) { throw new AppError('Order not found', 404); }
+    if (user.role !== 'admin' && order.customer_id !== user.id) { throw new AppError('Not authorized to cancel this order', 403); }
   if (order.status !== 'NEW' && order.status !== 'ACCEPTED') { throw new AppError('Order cannot be cancelled at this stage', 400); }
   order.status = 'CANCELLED';
   await order.save();
@@ -225,3 +225,5 @@ module.exports = {
   splitOrderItem,
   getOrderById
 };
+
+

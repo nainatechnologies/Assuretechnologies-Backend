@@ -24,17 +24,26 @@ const authMiddleware = (allowedRoles = []) => {
       }
 
       // 2. If Bearer token didn't yield a valid authorized user, check cookies
-      console.log('ValidUser is', validUser, 'Allowed Roles', allowedRoles, 'req.user', req.user);
+      
       if (!validUser) {
-        const possibleCookies = [
-          req.cookies?.admin_token,
-          req.cookies?.customer_token,
-          req.cookies?.partner_token,
-          req.cookies?.vendor_token,
-          req.cookies?.technician_token,
-          req.cookies?.drone_token,
-          req.cookies?.token
-        ].filter(Boolean);
+        const clientType = req.headers['x-client-type'];
+        let possibleCookies = [];
+        
+        if (clientType) {
+          if (req.cookies && req.cookies[`${clientType}_token`]) {
+            possibleCookies.push(req.cookies[`${clientType}_token`]);
+          }
+        } else {
+          possibleCookies = [
+            req.cookies?.admin_token,
+            req.cookies?.customer_token,
+            req.cookies?.partner_token,
+            req.cookies?.vendor_token,
+            req.cookies?.technician_token,
+            req.cookies?.drone_token,
+            req.cookies?.token
+          ].filter(Boolean);
+        }
 
         for (const t of possibleCookies) {
           try {
@@ -79,4 +88,8 @@ const authMiddleware = (allowedRoles = []) => {
 };
 
 module.exports = authMiddleware;
+
+
+
+
 
