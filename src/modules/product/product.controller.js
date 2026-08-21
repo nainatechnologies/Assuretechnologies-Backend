@@ -8,6 +8,7 @@ exports.getProducts = asyncHandler(async (req, res) => {
 
   const filters = {
     search: req.query.search || '',
+    category: req.query.category || '',
     stockStatus: req.query.stockStatus || 'All',
     sort: req.query.sort || 'popular'
   };
@@ -32,3 +33,4 @@ exports.deleteProduct = asyncHandler(async (req, res) => {
   const result = await productService.deleteProduct(req.params.id, req.user);
   res.status(200).json(result);
 });
+

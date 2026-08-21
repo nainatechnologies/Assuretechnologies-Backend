@@ -3,10 +3,14 @@ const { Op } = require('sequelize');
 const AppError = require('../../utils/AppError');
 
 const getProducts = async (filters, pagination, user) => {
-  const { search, stockStatus, sort } = filters;
+  const { search, category, stockStatus, sort } = filters;
   const { page, limit } = pagination;
 
   const whereClause = {};
+  
+  if (category) {
+    whereClause.category = category;
+  }
 
   if (user && user.role === 'vendor') {
     whereClause.vendor_id = user.id;
@@ -153,3 +157,4 @@ module.exports = {
   updateProduct,
   deleteProduct
 };
+

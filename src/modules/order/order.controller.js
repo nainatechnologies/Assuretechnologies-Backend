@@ -31,7 +31,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 
 exports.cancelOrder = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
-  const result = await orderService.cancelOrder(orderId, req.user.id);
+  const result = await orderService.cancelOrder(orderId, req.user);
   res.status(200).json(result);
 });
 
@@ -40,3 +40,4 @@ exports.updateOrderTracking = asyncHandler(async (req, res) => {
   const result = await orderService.updateOrderTracking(orderId, req.body, req.user);
   res.status(200).json(result);
 });
+

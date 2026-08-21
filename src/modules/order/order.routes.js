@@ -12,8 +12,9 @@ router.post('/:orderId/items/:itemId/split', authMiddleware(['admin']), validate
 
 router.put('/:orderId/status', authMiddleware(['admin', 'vendor']), validateRequest(orderSchemas.updateOrderStatusSchema), orderController.updateOrderStatus);
 
-router.post('/:orderId/cancel', authMiddleware(['customer']), orderController.cancelOrder);
+router.post('/:orderId/cancel', authMiddleware(['customer', 'admin']), orderController.cancelOrder);
 
 router.put('/:orderId/tracking', authMiddleware(['admin', 'vendor']), validateRequest(orderSchemas.updateOrderTrackingSchema), orderController.updateOrderTracking);
 
 module.exports = router;
+

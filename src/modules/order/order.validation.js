@@ -2,7 +2,7 @@ const { z } = require('zod');
 
 const orderItemsSchema = z.object({
   product_id: z.string().uuid('Invalid product ID'),
-  quantity: z.number().int().positive('Quantity must be positive'),
+  qty: z.number().int().positive('Quantity must be positive'),
 });
 
 const createOrderSchema = z.object({
@@ -36,3 +36,4 @@ module.exports = {
   updateOrderTrackingSchema,
   splitOrderItemSchema,
 };
+
