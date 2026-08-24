@@ -53,9 +53,5 @@ module.exports = (err, req, res, next) => {
     Object.assign(errorResponse, err.data);
   }
 
-  if (process.env.NODE_ENV === 'development') {
-    errorResponse.stack = err.stack;
-  }
-
   res.status(statusCode).json(errorResponse);
 };

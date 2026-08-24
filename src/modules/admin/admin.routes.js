@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const adminController = require('./admin.controller');
 const productController = require('../product/product.controller');
@@ -8,6 +8,8 @@ const authMiddleware = require('../../middleware/authMiddleware');
 router.use(authMiddleware(['admin']));
 
 const { validateRequest } = require('../../middleware/validate.middleware');
+const checkExists = require('../../middleware/checkExists.middleware');
+const Category = require('../category/category.model');
 const authSchemas = require('../auth/auth.validation');
 const adminSchemas = require('./admin.validation');
 const createUpload = require('../../middleware/upload');
@@ -24,9 +26,18 @@ router.post('/vendors', uploadVendor.fields([{ name: 'aadhar_proof', maxCount: 1
 router.post('/technicians', uploadTechnician.fields([{ name: 'id_proof', maxCount: 1 }, { name: 'noc_document', maxCount: 1 }]), validateRequest(authSchemas.technicianRegisterSchema), adminController.createTechnician);
 router.post('/partners', validateRequest(authSchemas.partnerRegisterSchema), adminController.createPartner);
 
+// Categories
+router.get('/categories', adminController.getCategories);
+router.post('/categories', validateRequest(adminSchemas.createCategorySchema), adminController.createCategory);
+
 // Partner Types
 router.get('/partner-types', adminController.getPartnerTypes);
-router.post('/partner-types', validateRequest(adminSchemas.createPartnerTypeSchema), adminController.createPartnerType);
+router.post(
+  '/partner-types', 
+  validateRequest(adminSchemas.createPartnerTypeSchema), 
+  checkExists(Category, 'body.category_id', 'Category'),
+  adminController.createPartnerType
+);
 
 // Pricing Types
 router.get('/pricing-types', adminController.getPricingTypes);

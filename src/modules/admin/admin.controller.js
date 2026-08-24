@@ -39,6 +39,16 @@ const createPartner = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, message: 'Partner created successfully', data: { partnerId: partner.id } });
 });
 
+const getCategories = asyncHandler(async (req, res) => {
+  const categories = await adminService.getCategories();
+  res.status(200).json({ success: true, data: categories });
+});
+
+const createCategory = asyncHandler(async (req, res) => {
+  const category = await adminService.createCategory(req.body);
+  res.status(201).json({ success: true, data: category });
+});
+
 const getPartnerTypes = asyncHandler(async (req, res) => {
   const types = await adminService.getPartnerTypes();
   res.status(200).json({ success: true, data: types });
@@ -66,6 +76,8 @@ module.exports = {
   createVendor,
   createTechnician,
   createPartner,
+  getCategories,
+  createCategory,
   getPartnerTypes,
   createPartnerType,
   getPricingTypes,

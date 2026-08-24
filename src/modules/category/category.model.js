@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 
-const PricingType = sequelize.define('PricingType', {
+const Category = sequelize.define('Category', {
   id: {
     type: DataTypes.UUID,
     defaultValue: DataTypes.UUIDV4,
@@ -12,13 +12,18 @@ const PricingType = sequelize.define('PricingType', {
     allowNull: false,
     unique: true,
   },
-  label: {
-    type: DataTypes.STRING,
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  is_active: {
+    type: DataTypes.BOOLEAN,
     allowNull: false,
+    defaultValue: true,
   }
 }, {
   timestamps: true,
-  tableName: 'PricingTypes',
+  tableName: 'Categories',
 });
 
-module.exports = PricingType;
+module.exports = Category;

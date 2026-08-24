@@ -11,10 +11,13 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
   try {
     await connectDB();
-    // DB connection established and authenticated via connectDB()
-    // Schema management is now handled exclusively by sequelize-cli migrations
-    console.log('Database connected successfully.');
-    
+
+    // Automatically create tables based on models
+    await sequelize.sync();
+    // await sequelize.sync({ alter: true }); // Uncomment this temporarily to force a schema sync if you add new columns later
+
+    console.log('Database connected successfully. Tables have been synced.');
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
     });

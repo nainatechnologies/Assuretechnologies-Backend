@@ -23,23 +23,42 @@ const Partner = sequelize.define('Partner', {
     type: DataTypes.STRING,
     allowNull: false,
     unique: true,
+    validate: {
+      isEmail: true,
+      notEmpty: true,
+    }
   },
   mobile: {
     type: DataTypes.STRING,
     allowNull: false,
     unique: true,
+    validate: {
+      isNumeric: true,
+      len: [10, 10],
+    }
   },
   password_hash: {
     type: DataTypes.STRING,
     allowNull: false,
   },
+  force_password_change: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
   full_name: {
     type: DataTypes.STRING,
     allowNull: false,
+    validate: {
+      notEmpty: true,
+    }
   },
   address: {
     type: DataTypes.TEXT,
     allowNull: false,
+    validate: {
+      notEmpty: true,
+    }
   },
   coverage_areas: {
     type: DataTypes.JSON, // JSON array of regional coverage areas

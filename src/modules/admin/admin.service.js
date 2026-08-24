@@ -3,6 +3,7 @@ const Technician = require('../technician/technician.model');
 const Partner = require('../partner/partner.model');
 const PartnerType = require('../partner/partnerType.model');
 const PricingType = require('../partner/pricingType.model');
+const Category = require('../category/category.model');
 const { hashPassword } = require('../../utils/hash');
 const { Op, Sequelize } = require('sequelize');
 const AppError = require('../../utils/AppError');
@@ -162,13 +163,25 @@ const createPartner = async (data) => {
   return partner;
 };
 
+const getCategories = async () => {
+  return await Category.findAll({ order: [['name', 'ASC']] });
+};
+
+const createCategory = async (data) => {
+  const { name, is_active } = data;
+  return await Category.create({ name, is_active });
+};
+
 const getPartnerTypes = async () => {
-  return await PartnerType.findAll({ order: [['createdAt', 'DESC']] });
+  return await PartnerType.findAll({ 
+    include: [{ model: Category, as: 'Category', attributes: ['id', 'name'] }],
+    order: [['createdAt', 'DESC']] 
+  });
 };
 
 const createPartnerType = async (data) => {
-  const { name, custom_fields } = data;
-  return await PartnerType.create({ name, custom_fields: custom_fields || [] });
+  const { name, category_id, custom_fields } = data;
+  return await PartnerType.create({ name, category_id, custom_fields: custom_fields || [] });
 };
 
 const getPricingTypes = async () => {
@@ -187,6 +200,8 @@ module.exports = {
   createVendor,
   createTechnician,
   createPartner,
+  getCategories,
+  createCategory,
   getPartnerTypes,
   createPartnerType,
   getPricingTypes,
