@@ -25,6 +25,8 @@ const authMiddleware = (allowedRoles = []) => {
 
       // 2. If Bearer token didn't yield a valid authorized user, check cookies
       
+      let isTokenValidButForbidden = false;
+
       if (!validUser) {
         const clientType = req.headers['x-client-type'];
         let possibleCookies = [];
@@ -51,6 +53,8 @@ const authMiddleware = (allowedRoles = []) => {
             if (allowedRoles.length === 0 || allowedRoles.includes(decoded.role)) {
               validUser = decoded;
               break; // Found a valid token that matches roles, stop searching
+            } else {
+              isTokenValidButForbidden = true;
             }
           } catch (e) {
             // invalid token in loop, ignore
@@ -67,13 +71,12 @@ const authMiddleware = (allowedRoles = []) => {
         }
         
         // If guest is not allowed, check if there was AT LEAST some token provided
-        const hasAnyToken = (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) || 
-                            Object.keys(req.cookies || {}).some(k => k.includes('token'));
-                            
-        if (hasAnyToken) {
+        const hasBearer = (req.headers.authorization && req.headers.authorization.startsWith('Bearer '));
+        
+        if (isTokenValidButForbidden || (hasBearer && !validUser && req.user === undefined)) {
           return res.status(403).json({ success: false, message: 'Forbidden: Insufficient permissions' });
         } else {
-          return res.status(401).json({ success: false, message: 'Authorization token missing' });
+          return res.status(401).json({ success: false, message: 'Authorization token missing or invalid' });
         }
       }
 
@@ -88,8 +91,3 @@ const authMiddleware = (allowedRoles = []) => {
 };
 
 module.exports = authMiddleware;
-
-
-
-
-

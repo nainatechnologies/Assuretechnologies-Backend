@@ -1,4 +1,4 @@
-const { Order, OrderItem, Product, Customer, Vendor } = require('../../models');
+const { Order, OrderItem, Product, Customer, Vendor, Cart, CartItem } = require('../../models');
 const AppError = require('../../utils/AppError');
 
 const createOrder = async (orderData, user) => {
@@ -67,6 +67,14 @@ const createOrder = async (orderData, user) => {
   for (const orderItem of orderItemsData) {
     orderItem.order_id = order.id;
     await OrderItem.create(orderItem);
+  }
+
+  // Clear the customer's cart
+  if (customer_id) {
+    const cart = await Cart.findOne({ where: { customer_id } });
+    if (cart) {
+      await CartItem.destroy({ where: { cart_id: cart.id } });
+    }
   }
 
   return { message: 'Order created successfully', order };
@@ -205,10 +213,30 @@ const updateOrderTracking = async (orderId, trackingData, user) => {
       return item.save();
     }));
   } else if (user.role === 'admin') {
-    order.transport_name = trackingData.transportName;
-    order.tracking_id = trackingData.trackingId;
-    order.tracking_url = trackingData.trackUrl;
-    await order.save();
+    if (trackingData.vendorId) {
+      const items = await OrderItem.findAll({ where: { order_id: order.id, vendor_id: trackingData.vendorId } });
+      if (!items.length) { throw new AppError('No items found for this vendor in this order', 404); }
+      await Promise.all(items.map(item => {
+        item.transport_name = trackingData.transportName;
+        item.tracking_id = trackingData.trackingId;
+        item.tracking_url = trackingData.trackUrl;
+        return item.save();
+      }));
+    } else {
+      const adminItems = await OrderItem.findAll({ where: { order_id: order.id, vendor_id: null } });
+      if (adminItems.length) {
+        await Promise.all(adminItems.map(item => {
+          item.transport_name = trackingData.transportName;
+          item.tracking_id = trackingData.trackingId;
+          item.tracking_url = trackingData.trackUrl;
+          return item.save();
+        }));
+      }
+      order.transport_name = trackingData.transportName;
+      order.tracking_id = trackingData.trackingId;
+      order.tracking_url = trackingData.trackUrl;
+      await order.save();
+    }
   } else {
     throw new AppError('Not authorized to update tracking', 403);
   }

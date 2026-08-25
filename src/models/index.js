@@ -12,6 +12,7 @@ const Cart = require('../modules/cart/cart.model');
 const CartItem = require('../modules/cart/cartItem.model');
 const Invoice = require('../modules/invoice/invoice.model');
 const InvoiceItem = require('../modules/invoice/invoiceItem.model');
+const { JobPosting, JobApplication } = require('../modules/career/career.model');
 
 module.exports = {
   Admin,
@@ -28,6 +29,8 @@ module.exports = {
   CartItem,
   Invoice,
   InvoiceItem,
+  JobPosting,
+  JobApplication,
 };
 
 Customer.hasOne(Cart, { foreignKey: 'customer_id' });
@@ -38,7 +41,6 @@ CartItem.belongsTo(Cart, { foreignKey: 'cart_id' });
 
 Product.hasMany(CartItem, { foreignKey: 'product_id' });
 CartItem.belongsTo(Product, { foreignKey: 'product_id' });
-
 
 Invoice.hasMany(InvoiceItem, { foreignKey: 'invoice_id', as: 'items' });
 InvoiceItem.belongsTo(Invoice, { foreignKey: 'invoice_id' });
