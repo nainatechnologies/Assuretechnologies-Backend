@@ -19,29 +19,16 @@ const uploadTechnician = createUpload('technicians');
 // Provider fetch endpoints
 router.get('/vendors', adminController.getVendors);
 router.get('/technicians', adminController.getTechnicians);
-router.get('/partners', adminController.getPartners);
 
 // Provider creation endpoints
 router.post('/vendors', uploadVendor.fields([{ name: 'aadhar_proof', maxCount: 1 }, { name: 'pan_proof', maxCount: 1 }, { name: 'shop_photo', maxCount: 1 }]), validateRequest(authSchemas.vendorRegisterSchema), adminController.createVendor);
 router.post('/technicians', uploadTechnician.fields([{ name: 'id_proof', maxCount: 1 }, { name: 'noc_document', maxCount: 1 }]), validateRequest(authSchemas.technicianRegisterSchema), adminController.createTechnician);
-router.post('/partners', validateRequest(authSchemas.partnerRegisterSchema), adminController.createPartner);
 
 // Categories
 router.get('/categories', adminController.getCategories);
 router.post('/categories', validateRequest(adminSchemas.createCategorySchema), adminController.createCategory);
 
-// Partner Types
-router.get('/partner-types', adminController.getPartnerTypes);
-router.post(
-  '/partner-types', 
-  validateRequest(adminSchemas.createPartnerTypeSchema), 
-  checkExists(Category, 'body.category_id', 'Category'),
-  adminController.createPartnerType
-);
 
-// Pricing Types
-router.get('/pricing-types', adminController.getPricingTypes);
-router.post('/pricing-types', validateRequest(adminSchemas.createPricingTypeSchema), adminController.createPricingType);
 
 // Products
 const productRoutes = require('../product/product.routes');

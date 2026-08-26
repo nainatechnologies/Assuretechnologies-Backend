@@ -12,14 +12,29 @@ const createPartnerTypeSchema = z.object({
   custom_fields: z.array(z.any()).optional()
 });
 
+const updatePartnerTypeSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').optional(),
+  category_id: z.string().uuid('Please select a valid Category.').optional(),
+  description: z.string().optional(),
+  custom_fields: z.array(z.any()).optional()
+});
+
 const createPricingTypeSchema = z.object({
   name: z.string({ required_error: 'Pricing type name is required' }).trim().min(2, 'Name must be at least 2 characters'),
   label: z.string({ required_error: 'Frontend label is required' }).trim(),
   description: z.string().optional()
 });
 
+const updatePricingTypeSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').optional(),
+  label: z.string().trim().optional(),
+  description: z.string().optional()
+});
+
 module.exports = {
   createCategorySchema,
   createPartnerTypeSchema,
-  createPricingTypeSchema
+  updatePartnerTypeSchema,
+  createPricingTypeSchema,
+  updatePricingTypeSchema
 };

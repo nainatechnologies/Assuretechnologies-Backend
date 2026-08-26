@@ -53,6 +53,8 @@ const customerRoutes = require('./modules/customer/customer.routes');
 const invoiceRoutes = require('./modules/invoice/invoice.routes');
 const serviceRoutes = require('./modules/service/service.routes');
 const careerRoutes = require('./modules/career/career.routes');
+const serviceBookingRoutes = require('./modules/service/serviceBooking.routes');
+const partnerRoutes = require('./modules/partner/partner.routes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
@@ -64,6 +66,8 @@ app.use('/api/customer', customerRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api', serviceRoutes);
 app.use('/api/career', careerRoutes);
+app.use('/api', serviceBookingRoutes);
+app.use('/api', partnerRoutes);
 
 // Global Error Handler (must be the last middleware)
 const errorMiddleware = require('./middleware/errorMiddleware');

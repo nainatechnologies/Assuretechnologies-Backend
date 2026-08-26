@@ -1,8 +1,5 @@
 const Vendor = require('../vendor/vendor.model');
 const Technician = require('../technician/technician.model');
-const Partner = require('../partner/partner.model');
-const PartnerType = require('../partner/partnerType.model');
-const PricingType = require('../partner/pricingType.model');
 const Category = require('../category/category.model');
 const { hashPassword } = require('../../utils/hash');
 const { Op, Sequelize } = require('sequelize');
@@ -73,14 +70,6 @@ const getTechnicians = async (page = 1, limit = 10, search = '') => {
   };
 };
 
-const getPartners = async () => {
-  return await Partner.findAll({
-    attributes: { exclude: ['password_hash'] },
-    include: [{ model: PartnerType, as: 'partnerType' }],
-    order: [['createdAt', 'DESC']]
-  });
-};
-
 const createVendor = async (data, files) => {
   const { email, mobile, password, full_name, business_name, address, gst_number, pincode, business_description, bank_account_details } = data;
 
@@ -140,29 +129,6 @@ const createTechnician = async (data, files) => {
   return technician;
 };
 
-const createPartner = async (data) => {
-  const { email, mobile, password, full_name, address, coverage_areas, services_provided, partner_type_id, custom_field_values } = data;
-
-  const existingPartner = await Partner.findOne({ where: { email } });
-  if (existingPartner) throw new AppError('Email already registered', 400);
-
-  const existingMobile = await Partner.findOne({ where: { mobile } });
-  if (existingMobile) throw new AppError('Mobile already registered', 400);
-
-  const password_hash = await hashPassword(password);
-
-  const partner = await Partner.create({
-    email, mobile, password_hash, full_name, address,
-    coverage_areas: coverage_areas || [],
-    services_provided: services_provided || [],
-    partner_type_id,
-    custom_field_values: custom_field_values || {},
-    is_active: true
-  });
-
-  return partner;
-};
-
 const getCategories = async () => {
   return await Category.findAll({ order: [['name', 'ASC']] });
 };
@@ -172,38 +138,11 @@ const createCategory = async (data) => {
   return await Category.create({ name, is_active });
 };
 
-const getPartnerTypes = async () => {
-  return await PartnerType.findAll({ 
-    include: [{ model: Category, as: 'Category', attributes: ['id', 'name'] }],
-    order: [['createdAt', 'DESC']] 
-  });
-};
-
-const createPartnerType = async (data) => {
-  const { name, category_id, custom_fields } = data;
-  return await PartnerType.create({ name, category_id, custom_fields: custom_fields || [] });
-};
-
-const getPricingTypes = async () => {
-  return await PricingType.findAll({ order: [['createdAt', 'DESC']] });
-};
-
-const createPricingType = async (data) => {
-  const { name, label } = data;
-  return await PricingType.create({ name, label });
-};
-
 module.exports = {
   getVendors,
   getTechnicians,
-  getPartners,
   createVendor,
   createTechnician,
-  createPartner,
   getCategories,
-  createCategory,
-  getPartnerTypes,
-  createPartnerType,
-  getPricingTypes,
-  createPricingType
+  createCategory
 };

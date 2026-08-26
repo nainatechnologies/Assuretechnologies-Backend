@@ -112,7 +112,7 @@ const getAdminServices = async ({ search, category_id, service_owner_type, is_ac
     where: whereClause,
     include: [
       { model: Category, as: 'category', attributes: ['id', 'name'] },
-      { model: PricingType, as: 'pricingType', attributes: ['id', 'name'] },
+      { model: PricingType, as: 'pricingType', attributes: ['id', 'name', 'label'] },
       { model: PartnerType, as: 'requiredPartnerType', attributes: ['id', 'name'] }
     ],
     limit: parseInt(limit, 10),

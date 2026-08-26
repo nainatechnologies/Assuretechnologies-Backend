@@ -57,6 +57,8 @@ router.post(
 // Update Service
 router.put(
   '/admin/services/:id',
+  upload.single('image'),
+  processFormData,
   validateRequest(serviceSchemas.updateServiceSchema),
   serviceController.updateService
 );

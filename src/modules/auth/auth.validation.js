@@ -1,4 +1,4 @@
-﻿const { z } = require('zod');
+const { z } = require('zod');
 
 // Inline validation rules
 const mobileRegex = /^[6-9]\d{9}$/;
@@ -138,7 +138,7 @@ const partnerRegisterSchema = z.object({
   address: addressValidation,
   coverage_areas: z.array(z.string()).min(1, 'At least one coverage area is required'),
   services_provided: z.array(z.string()).min(1, 'At least one service is required'),
-  partner_type_id: z.coerce.number().int().positive('Invalid partner type ID'),
+  partner_type_id: z.string({ required_error: 'Partner type ID is required' }).uuid('Please select a valid Partner Type.'),
   custom_field_values: z.record(z.any()).optional()
 });
 
