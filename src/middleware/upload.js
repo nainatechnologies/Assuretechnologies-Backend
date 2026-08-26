@@ -21,7 +21,7 @@ const createUpload = (folderName) => {
   });
 
   const fileFilter = (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf' || file.mimetype === 'application/msword' || file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       cb(null, true);
     } else {
       cb(new Error('Invalid file type! Only images and PDFs are allowed.'), false);
@@ -38,3 +38,4 @@ const createUpload = (folderName) => {
 };
 
 module.exports = createUpload;
+
