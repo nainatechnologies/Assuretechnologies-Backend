@@ -5,7 +5,7 @@ const Service = require('./service.model');
 const Partner = require('../partner/partner.model');
 const Technician = require('../technician/technician.model');
 
-const BOOKING_STATUSES = ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'COMPLETED', 'CANCELLED'];
+const BOOKING_STATUSES = ['NEW', 'ACCEPTED', 'ASSIGNED', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'COMPLETED', 'CANCELLED'];
 
 const ServiceBooking = sequelize.define('ServiceBooking', {
   id: {

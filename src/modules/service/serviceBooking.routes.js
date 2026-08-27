@@ -8,6 +8,7 @@ const {
   verifyPaymentSchema,
   updateBookingStatusSchema,
   updateBookingStatusParamSchema,
+  assignBookingSchema,
 } = require('./serviceBooking.validation');
 
 // ----------------------------------------------------
@@ -54,6 +55,15 @@ router.put(
   validateParams(updateBookingStatusParamSchema),
   validateRequest(updateBookingStatusSchema),
   bookingController.updateBookingStatus
+);
+
+// Assign booking to technician or partner (admin)
+router.post(
+  '/admin/service-bookings/:id/assign',
+  authMiddleware(['admin']),
+  validateParams(updateBookingStatusParamSchema),
+  validateRequest(assignBookingSchema),
+  bookingController.assignBooking
 );
 
 module.exports = router;

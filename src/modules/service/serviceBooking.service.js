@@ -42,14 +42,18 @@ const createBooking = async (bookingData, user) => {
   const datePart = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
   const timePart = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
   const randomPart = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-
+  
   const order_number = 'SBK' + datePart + timePart + randomPart;
+
+  // Fetch actual customer to get name and mobile
+  const Customer = require('../customer/customer.model');
+  const customer = await Customer.findByPk(customer_id);
 
   const order = await Order.create({
     order_number,
     customer_id,
-    customer_name: user.full_name || 'Customer',
-    customer_contact: user.mobile || '',
+    customer_name: customer ? customer.full_name : 'Customer',
+    customer_contact: customer ? customer.mobile : '',
     customer_address: typeof address === 'object' ? JSON.stringify(address) : address,
     subtotal_amount: final_price,
     tax_amount: 0,
@@ -92,13 +96,13 @@ const getCustomerBookings = async (user) => {
     include: [
       {
         model: Order,
-        as: 'order',
+        as: 'Order',
         where: { customer_id: user.id },
         attributes: ['order_number', 'total_amount', 'payment_status']
       },
       {
         model: Service,
-        as: 'service',
+        as: 'Service',
         attributes: ['id', 'name', 'image']
       }
     ],
@@ -108,34 +112,63 @@ const getCustomerBookings = async (user) => {
   return bookings;
 };
 
-const getAdminBookings = async () => {
-  const bookings = await ServiceBooking.findAll({
+const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
+  const whereClause = {};
+  if (status && BOOKING_STATUSES.includes(status)) {
+    whereClause.status = status;
+  }
+  
+  if (owner_type) {
+    whereClause['$Service.service_owner_type$'] = owner_type;
+  }
+
+  const offset = (page - 1) * limit;
+
+  const Customer = require('../customer/customer.model');
+  const { count, rows } = await ServiceBooking.findAndCountAll({
+    where: whereClause,
     include: [
       {
         model: Order,
-        as: 'order',
-        attributes: ['order_number', 'total_amount', 'payment_status', 'customer_name', 'customer_contact']
+        as: 'Order',
+        attributes: ['order_number', 'total_amount', 'payment_status', 'customer_name', 'customer_contact'],
+        include: [
+          {
+            model: Customer,
+            as: 'customer',
+            attributes: ['email']
+          }
+        ]
       },
       {
         model: Service,
-        as: 'service',
+        as: 'Service',
         attributes: ['id', 'name', 'service_owner_type']
       }
     ],
-    order: [['createdAt', 'DESC']]
+    order: [['createdAt', 'DESC']],
+    limit,
+    offset,
+    distinct: true
   });
 
-  return bookings;
+  return {
+    available_statuses: BOOKING_STATUSES,
+    data: rows,
+    total: count,
+    page,
+    totalPages: Math.ceil(count / limit)
+  };
 };
 
 const verifyPayment = async (booking_id, payment_data, user) => {
   const booking = await ServiceBooking.findByPk(booking_id, {
-    include: [{ model: Order, as: 'order' }]
+    include: [{ model: Order, as: 'Order' }]
   });
 
   if (!booking) throw new AppError('Booking not found', 404);
 
-  if (!booking.order || booking.order.customer_id !== user.id) {
+  if (!booking.Order || booking.Order.customer_id !== user.id) {
     throw new AppError('You are not authorized to verify this booking', 403);
   }
 
@@ -146,8 +179,8 @@ const verifyPayment = async (booking_id, payment_data, user) => {
   booking.prebooking_paid = true;
   await booking.save();
 
-  booking.order.payment_status = 'PAID';
-  await booking.order.save();
+  booking.Order.payment_status = 'PAID';
+  await booking.Order.save();
 
   return { message: 'Payment verified and booking confirmed' };
 };
@@ -166,10 +199,32 @@ const updateBookingStatus = async (booking_id, status) => {
   return { message: 'Booking status updated successfully', booking };
 };
 
+const assignBooking = async (booking_id, assignmentData) => {
+  const { technician_id, partner_id } = assignmentData;
+  const booking = await ServiceBooking.findByPk(booking_id);
+  if (!booking) throw new AppError('Booking not found', 404);
+
+  if (technician_id) {
+    booking.assigned_technician_id = technician_id;
+  }
+  if (partner_id) {
+    booking.assigned_partner_id = partner_id;
+  }
+  
+  if (['NEW', 'ACCEPTED', 'AWAITING_APPROVAL'].includes(booking.status)) {
+    booking.status = 'ASSIGNED';
+  }
+  
+  await booking.save();
+
+  return { message: 'Booking assigned successfully', booking };
+};
+
 module.exports = {
   createBooking,
   getCustomerBookings,
   getAdminBookings,
   verifyPayment,
-  updateBookingStatus
+  updateBookingStatus,
+  assignBooking
 };

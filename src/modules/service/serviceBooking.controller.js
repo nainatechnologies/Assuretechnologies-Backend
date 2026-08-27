@@ -19,10 +19,11 @@ const getCustomerBookings = asyncHandler(async (req, res) => {
 });
 
 const getAdminBookings = asyncHandler(async (req, res) => {
-  const bookings = await bookingService.getAdminBookings();
+  const { status, owner_type, page = 1, limit = 10 } = req.query;
+  const bookings = await bookingService.getAdminBookings(status, owner_type, parseInt(page), parseInt(limit));
   res.status(200).json({
     success: true,
-    data: bookings
+    ...bookings
   });
 });
 
@@ -47,10 +48,21 @@ const updateBookingStatus = asyncHandler(async (req, res) => {
   });
 });
 
+const assignBooking = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  const result = await bookingService.assignBooking(id, req.body);
+  res.status(200).json({
+    success: true,
+    ...result
+  });
+});
+
 module.exports = {
   createBooking,
   getCustomerBookings,
   getAdminBookings,
   verifyPayment,
-  updateBookingStatus
+  updateBookingStatus,
+  assignBooking
 };

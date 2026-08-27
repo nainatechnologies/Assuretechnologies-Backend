@@ -1,6 +1,6 @@
 const { z } = require('zod');
 
-const BOOKING_STATUSES = ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'COMPLETED', 'CANCELLED'];
+const BOOKING_STATUSES = ['NEW', 'ACCEPTED', 'ASSIGNED', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'COMPLETED', 'CANCELLED'];
 
 const isoDateString = z.string({ required_error: 'Scheduled date is required' }).refine((value) => {
   const date = new Date(value);
@@ -58,10 +58,18 @@ const updateBookingStatusParamSchema = z.object({
   id: z.string().uuid('Invalid Booking ID')
 });
 
+const assignBookingSchema = z.object({
+  technician_id: z.string().uuid('Invalid Technician ID').optional(),
+  partner_id: z.string().uuid('Invalid Partner ID').optional()
+}).refine(data => data.technician_id || data.partner_id, {
+  message: 'Either technician_id or partner_id is required'
+});
+
 module.exports = {
   createServiceBookingSchema,
   verifyPaymentSchema,
   updateBookingStatusSchema,
   updateBookingStatusParamSchema,
+  assignBookingSchema,
   BOOKING_STATUSES,
 };

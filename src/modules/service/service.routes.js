@@ -9,11 +9,8 @@ const { setServiceOwnerType, validateCategoryMatch } = require('./service.middle
 // Public / Customer Route (Fetch all active services)
 router.get('/services', serviceController.getPublicServices);
 
-// Apply auth middleware for all service management routes below (Admin only)
-router.use(authMiddleware(['admin']));
-
 // Admin Route (Fetch all services, including inactive ones)
-router.get('/admin/services', serviceController.getAdminServices);
+router.get('/admin/services', authMiddleware(['admin']), serviceController.getAdminServices);
 
 const createUpload = require('../../middleware/upload');
 const upload = createUpload('services'); // Points to Cloudinary assure-backend/services folder
@@ -46,6 +43,7 @@ const processFormData = (req, res, next) => {
 // Used by: "Manage Services" & "Manage Partner Services" UIs
 router.post(
   '/admin/services',
+  authMiddleware(['admin']),
   upload.single('image'), // Must run FIRST to parse multipart/form-data
   processFormData,        // Convert strings to numbers/JSON & map Cloudinary URL
   validateRequest(serviceSchemas.createServiceSchema),
@@ -57,6 +55,7 @@ router.post(
 // Update Service
 router.put(
   '/admin/services/:id',
+  authMiddleware(['admin']),
   upload.single('image'),
   processFormData,
   validateRequest(serviceSchemas.updateServiceSchema),
@@ -66,6 +65,7 @@ router.put(
 // Toggle Service Status (Soft Delete)
 router.patch(
   '/admin/services/:id/status',
+  authMiddleware(['admin']),
   validateRequest(serviceSchemas.toggleServiceStatusSchema),
   serviceController.toggleServiceStatus
 );
