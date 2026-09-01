@@ -7,7 +7,9 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173', // Admin
-  'http://localhost:3000', // Customer (Assure-frontend)
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002', // Customer (Assure-frontend)
   'http://localhost:5174', // Vendor
   'http://localhost:5175', // Technician
   'http://localhost:5176', // Partner

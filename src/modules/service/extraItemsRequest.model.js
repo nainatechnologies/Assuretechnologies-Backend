@@ -18,6 +18,19 @@ const ExtraItemsRequest = sequelize.define('ExtraItemsRequest', {
       key: 'id'
     }
   },
+  technician_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'Technicians',
+      key: 'id'
+    }
+  },
+  metadata: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    comment: 'Flexible storage for extra fields like item_name, estimated_cost, etc.'
+  },
   description: {
     type: DataTypes.STRING,
     allowNull: false,

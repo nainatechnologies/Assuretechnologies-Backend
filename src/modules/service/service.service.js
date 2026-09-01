@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const crypto = require('crypto');
 const stringSimilarity = require('string-similarity');
+const cloudinary = require('cloudinary').v2;
 const { Service, Category, PricingType, PartnerType } = require('../../models');
 const AppError = require('../../utils/AppError');
 
@@ -126,8 +127,20 @@ const getAdminServices = async ({ search, category_id, service_owner_type, is_ac
 const updateService = async (id, updateData) => {
   const service = await Service.findByPk(id);
   if (!service) throw new AppError('Service not found', 404);
+  
   if (updateData.service_owner_type) delete updateData.service_owner_type;
   if (updateData.custom_fields) updateData.custom_fields = processCustomFields(updateData.custom_fields);
+
+  // If a new image was uploaded and there is an old one, delete the old one
+  if (updateData.image_public_id && service.image_public_id && updateData.image_public_id !== service.image_public_id) {
+    try {
+      await cloudinary.uploader.destroy(service.image_public_id);
+    } catch (error) {
+      console.error('Failed to delete old image from Cloudinary:', error);
+      // Log the error but don't block the database update
+    }
+  }
+
   await service.update(updateData);
   return service;
 };

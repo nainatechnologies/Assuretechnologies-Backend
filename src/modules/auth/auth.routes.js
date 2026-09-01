@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 
 const adminAuth = require('./adminAuth.controller');
@@ -43,6 +43,7 @@ router.post('/vendor/login', validateRequest(authSchemas.vendorLoginSchema), ven
 
 // Technician Auth
 router.post('/technician/login', validateRequest(authSchemas.partnerLoginSchema), technicianAuth.login);
+router.post('/technician/set-password', validateRequest(authSchemas.technicianSetPasswordSchema), technicianAuth.setPassword);
 
 // Partner Auth
 router.post('/partner/login', validateRequest(authSchemas.partnerLoginSchema), partnerAuth.login);

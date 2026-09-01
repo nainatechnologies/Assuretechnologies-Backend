@@ -142,6 +142,19 @@ const partnerRegisterSchema = z.object({
   custom_field_values: z.record(z.any()).optional()
 });
 
+const technicianSetPasswordSchema = z.object({
+  email: emailValidation,
+  old_password: loginPasswordValidation,
+  new_password: strictPasswordValidation,
+  confirm_password: z.string({ required_error: 'Please confirm your new password' })
+}).refine(data => data.new_password === data.confirm_password, {
+  message: 'Passwords do not match',
+  path: ['confirm_password']
+}).refine(data => data.old_password !== data.new_password, {
+  message: 'New password cannot be the same as the old password',
+  path: ['new_password']
+});
+
 module.exports = {
   customerRegisterSchema,
   customerLoginSchema,
@@ -155,7 +168,6 @@ module.exports = {
   partnerLoginSchema,
   technicianRegisterSchema,
   droneRegisterSchema,
-  partnerRegisterSchema
+  partnerRegisterSchema,
+  technicianSetPasswordSchema
 };
-
-

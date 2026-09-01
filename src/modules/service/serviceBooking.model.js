@@ -95,6 +95,22 @@ const ServiceBooking = sequelize.define('ServiceBooking', {
     type: DataTypes.ENUM(...BOOKING_STATUSES),
     allowNull: false,
     defaultValue: 'NEW',
+  },
+  cancelled_by: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    validate: {
+      isIn: {
+        args: [['CUSTOMER', 'ADMIN']],
+        msg: "cancelled_by must be one of: CUSTOMER, ADMIN"
+      }
+    },
+    comment: 'Tracks who initiated the cancellation'
+  },
+  cancellation_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'The reason provided for cancellation'
   }
 }, {
   timestamps: true,
@@ -102,3 +118,4 @@ const ServiceBooking = sequelize.define('ServiceBooking', {
 });
 
 module.exports = ServiceBooking;
+module.exports.CANCELLED_BY_ROLES = ['CUSTOMER', 'ADMIN'];

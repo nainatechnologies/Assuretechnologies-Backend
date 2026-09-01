@@ -53,6 +53,10 @@ const Technician = sequelize.define('Technician', {
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
+  },
+  force_password_change: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
   }
 }, {
   timestamps: true,

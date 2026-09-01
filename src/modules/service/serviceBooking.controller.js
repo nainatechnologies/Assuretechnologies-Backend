@@ -11,7 +11,9 @@ const createBooking = asyncHandler(async (req, res) => {
 });
 
 const getCustomerBookings = asyncHandler(async (req, res) => {
-  const bookings = await bookingService.getCustomerBookings(req.user);
+  const { id } = req.params;
+  const booking_id = id || req.query.id || null;
+  const bookings = await bookingService.getCustomerBookings(req.user, booking_id);
   res.status(200).json({
     success: true,
     data: bookings
@@ -39,9 +41,9 @@ const verifyPayment = asyncHandler(async (req, res) => {
 
 const updateBookingStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, reason } = req.body;
 
-  const result = await bookingService.updateBookingStatus(id, status);
+  const result = await bookingService.updateBookingStatus(id, status, reason);
   res.status(200).json({
     success: true,
     ...result
@@ -58,11 +60,51 @@ const assignBooking = asyncHandler(async (req, res) => {
   });
 });
 
+const getTechnicianBookings = asyncHandler(async (req, res) => {
+  const bookings = await bookingService.getTechnicianBookings(req.user.id);
+  res.status(200).json({
+    success: true,
+    data: bookings
+  });
+});
+
+const getTechnicianBookingDetails = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const booking = await bookingService.getTechnicianBookingDetails(id, req.user.id);
+  res.status(200).json({
+    success: true,
+    data: booking
+  });
+});
+
+const handleTechnicianAction = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  const result = await bookingService.handleTechnicianAction(id, req.user.id, req.body);
+  res.status(200).json({
+    success: true,
+    ...result
+  });
+});
+
+const handleCustomerAction = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await bookingService.handleCustomerAction(id, req.user.id, req.body);
+  res.status(200).json({
+    success: true,
+    ...result
+  });
+});
+
 module.exports = {
   createBooking,
   getCustomerBookings,
+  handleCustomerAction,
   getAdminBookings,
   verifyPayment,
   updateBookingStatus,
-  assignBooking
+  assignBooking,
+  getTechnicianBookings,
+  getTechnicianBookingDetails,
+  handleTechnicianAction
 };

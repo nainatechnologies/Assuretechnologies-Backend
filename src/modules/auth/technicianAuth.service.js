@@ -1,5 +1,5 @@
 const Technician = require('../technician/technician.model');
-const { comparePassword } = require('../../utils/hash');
+const { comparePassword, hashPassword } = require('../../utils/hash');
 const { generateToken } = require('../../utils/jwt');
 const AppError = require('../../utils/AppError');
 
@@ -21,6 +21,36 @@ const login = async (email, password) => {
     throw new AppError('Invalid credentials', 401);
   }
 
+  // Check if force_password_change is true
+  if (user.force_password_change) {
+    return { requiresPasswordChange: true };
+  }
+
+  const token = generateToken({ id: user.id, role: 'technician' });
+  
+  const userData = user.toJSON();
+  delete userData.password_hash;
+
+  return { user: userData, token, requiresPasswordChange: false };
+};
+
+const setPassword = async (email, old_password, new_password) => {
+  const user = await Technician.findOne({ where: { email } });
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  const isMatch = await comparePassword(old_password, user.password_hash);
+  if (!isMatch) {
+    throw new AppError('Invalid old password', 401);
+  }
+
+  const newPasswordHash = await hashPassword(new_password);
+
+  user.password_hash = newPasswordHash;
+  user.force_password_change = false;
+  await user.save();
+
   const token = generateToken({ id: user.id, role: 'technician' });
   
   const userData = user.toJSON();
@@ -29,4 +59,4 @@ const login = async (email, password) => {
   return { user: userData, token };
 };
 
-module.exports = { login };
+module.exports = { login, setPassword };
