@@ -15,10 +15,28 @@ const adminSchemas = require('./admin.validation');
 const createUpload = require('../../middleware/upload');
 const uploadVendor = createUpload('vendors');
 const uploadTechnician = createUpload('technicians');
+const uploadPaymentProof = createUpload('payment_proofs');
+
+// Dashboard Stats & Recent Activity
+router.get('/dashboard/stats', adminController.getDashboardStats);
+router.get('/dashboard/recent-activity', adminController.getRecentActivity);
 
 // Provider fetch endpoints
 router.get('/vendors', adminController.getVendors);
 router.get('/technicians', adminController.getTechnicians);
+
+// Customers / Users endpoints
+router.get('/customers', adminController.getCustomers);
+router.get('/customers/:id', adminController.getCustomerById);
+router.patch('/customers/:id/status', adminController.updateCustomerStatus);
+router.put('/customers/:id', adminController.updateCustomer);
+
+// Payments & Settlements
+router.get('/payments/summary', adminController.getPaymentSummary);
+router.get('/payments/transactions', adminController.getPaymentTransactions);
+router.get('/payments/pending-payouts', adminController.getPendingPayouts);
+router.get('/payments/vendor-ledger', adminController.getVendorLedger);
+router.post('/payments/payout', uploadPaymentProof.single('proof_image'), adminController.processVendorPayout);
 
 // Provider creation endpoints
 router.post('/vendors', uploadVendor.fields([{ name: 'aadhar_proof', maxCount: 1 }, { name: 'pan_proof', maxCount: 1 }, { name: 'shop_photo', maxCount: 1 }]), validateRequest(authSchemas.vendorRegisterSchema), adminController.createVendor);

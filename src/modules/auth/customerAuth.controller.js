@@ -54,6 +54,21 @@ const addAddress = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, message: 'Address added successfully', data });
 });
 
+const updateAddress = asyncHandler(async (req, res) => {
+  const data = await customerAuthService.updateAddress(req.user.id, req.params.id, req.body);
+  res.status(200).json({ success: true, message: 'Address updated successfully', data });
+});
+
+const deleteAddress = asyncHandler(async (req, res) => {
+  await customerAuthService.deleteAddress(req.user.id, req.params.id);
+  res.status(200).json({ success: true, message: 'Address deleted successfully' });
+});
+
+const setDefaultAddress = asyncHandler(async (req, res) => {
+  const data = await customerAuthService.setDefaultAddress(req.user.id, req.params.id);
+  res.status(200).json({ success: true, message: 'Default address set successfully', data });
+});
+
 module.exports = {
-  register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword, getAddresses, addAddress
+  register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword, getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress
 };

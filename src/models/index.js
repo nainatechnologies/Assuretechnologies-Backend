@@ -1,3 +1,4 @@
+const Notification = require('../modules/notification/notification.model');
 const Admin = require('../modules/admin/admin.model');
 const Customer = require('../modules/customer/customer.model');
 const Vendor = require('../modules/vendor/vendor.model');
@@ -14,6 +15,7 @@ const CartItem = require('../modules/cart/cartItem.model');
 const Invoice = require('../modules/invoice/invoice.model');
 const InvoiceItem = require('../modules/invoice/invoiceItem.model');
 const { JobPosting, JobApplication } = require('../modules/career/career.model');
+const VendorPayout = require('../modules/vendor/vendorPayout.model');
 
 // Service Models
 const Service = require('../modules/service/service.model');
@@ -22,6 +24,7 @@ const JobProgress = require('../modules/service/jobProgress.model');
 const ExtraItemsRequest = require('../modules/service/extraItemsRequest.model');
 
 module.exports = {
+  Notification,
   Admin,
   Customer,
   Vendor,
@@ -43,6 +46,7 @@ module.exports = {
   ExtraItemsRequest,
   JobPosting,
   JobApplication,
+  VendorPayout,
 };
 
 Customer.hasOne(Cart, { foreignKey: 'customer_id' });
