@@ -52,5 +52,8 @@ router.post('/partner/login', validateRequest(authSchemas.partnerLoginSchema), p
 const authMiddleware = require('../../middleware/authMiddleware');
 router.get('/customer/addresses', authMiddleware(['customer']), customerAuth.getAddresses);
 router.post('/customer/addresses', authMiddleware(['customer']), validateRequest(customerSchemas.addAddressSchema), customerAuth.addAddress);
+router.put('/customer/addresses/:id', authMiddleware(['customer']), validateRequest(customerSchemas.updateAddressSchema), customerAuth.updateAddress);
+router.delete('/customer/addresses/:id', authMiddleware(['customer']), customerAuth.deleteAddress);
+router.patch('/customer/addresses/:id/default', authMiddleware(['customer']), customerAuth.setDefaultAddress);
 
 module.exports = router;

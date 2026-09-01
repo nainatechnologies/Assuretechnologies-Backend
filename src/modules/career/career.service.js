@@ -66,6 +66,21 @@ exports.submitApplication = async (data, file) => {
   }
 
   const application = await JobApplication.create({ ...data, resumeUrl });
+    // Trigger Real-time Admin Notification via SSE
+  try {
+    const notificationService = require('../notification/notification.service');
+    notificationService.createNotification({
+      title: 'New Job Application',
+      message: `Application submitted by ${application.fullName} for position: ${job ? job.title : 'Job Posting'}`,
+      type: 'CAREER',
+      action_url: '/admin/job-portal',
+      target_role: 'admin',
+      metadata: { application_id: application.id }
+    });
+  } catch (notifErr) {
+    console.error('Failed to trigger job application notification:', notifErr);
+  }
+
   return application;
 };
 
