@@ -10,8 +10,40 @@ const {
   updateBookingStatusParamSchema,
   assignBookingSchema,
   technicianActionSchema,
+  partnerActionSchema,
   customerActionSchema,
 } = require('./serviceBooking.validation');
+const createUpload = require('../../middleware/upload');
+const uploadProgress = createUpload('progress');
+
+// Process multipart/form-data for progress photos before Zod validation
+const processProgressFormData = (req, res, next) => {
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    req.body.photos = req.files.map(f => f.path);
+    req.body.photo_public_ids = req.files.map(f => f.filename);
+  } else if (!req.body.photos) {
+    req.body.photos = [];
+    req.body.photo_public_ids = [];
+  }
+
+  if (typeof req.body.photos === 'string') {
+    try {
+      req.body.photos = JSON.parse(req.body.photos);
+    } catch (e) {
+      req.body.photos = [req.body.photos];
+    }
+  }
+
+  if (req.body.extraItems && typeof req.body.extraItems === 'string') {
+    try {
+      req.body.extraItems = JSON.parse(req.body.extraItems);
+    } catch (e) {
+      // Leave as is
+    }
+  }
+
+  next();
+};
 
 // ----------------------------------------------------
 // CUSTOMER ROUTES
@@ -85,6 +117,14 @@ router.post(
   bookingController.assignBooking
 );
 
+// Get available partners for a specific booking (admin)
+router.get(
+  '/admin/service-bookings/:id/available-partners',
+  authMiddleware(['admin']),
+  validateParams(updateBookingStatusParamSchema),
+  bookingController.getAvailablePartnersForBooking
+);
+
 // ----------------------------------------------------
 // TECHNICIAN ROUTES
 // ----------------------------------------------------
@@ -108,9 +148,41 @@ router.get(
 router.patch(
   '/technician/service-bookings/:id/action',
   authMiddleware(['technician']),
+  uploadProgress.array('photos', 3),
+  processProgressFormData,
   validateParams(updateBookingStatusParamSchema),
   validateRequest(technicianActionSchema),
   bookingController.handleTechnicianAction
+);
+
+// ----------------------------------------------------
+// PARTNER ROUTES
+// ----------------------------------------------------
+
+// Get all assigned bookings (partner)
+router.get(
+  '/partner/service-bookings',
+  authMiddleware(['partner']),
+  bookingController.getPartnerBookings
+);
+
+// Get specific booking details and history (partner)
+router.get(
+  '/partner/service-bookings/:id',
+  authMiddleware(['partner']),
+  validateParams(updateBookingStatusParamSchema),
+  bookingController.getPartnerBookingDetails
+);
+
+// Perform action (Start, Progress, Complete)
+router.patch(
+  '/partner/service-bookings/:id/action',
+  authMiddleware(['partner']),
+  uploadProgress.array('photos', 3),
+  processProgressFormData,
+  validateParams(updateBookingStatusParamSchema),
+  validateRequest(partnerActionSchema),
+  bookingController.handlePartnerAction
 );
 
 module.exports = router;

@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const ServiceBooking = require('./serviceBooking.model');
 
+const ACTOR_TYPES = ['TECHNICIAN', 'PARTNER'];
 const UPDATE_TYPES = ['START', 'PROGRESS', 'COMPLETE'];
 
 const JobProgress = sequelize.define('JobProgress', {
@@ -18,11 +19,24 @@ const JobProgress = sequelize.define('JobProgress', {
       key: 'id'
     }
   },
+  actor_type: {
+    type: DataTypes.ENUM(...ACTOR_TYPES),
+    allowNull: false,
+    defaultValue: 'TECHNICIAN'
+  },
   technician_id: {
     type: DataTypes.UUID,
     allowNull: true,
     references: {
-      model: 'Technicians', // Uses the table name as reference to avoid circular dependencies if any
+      model: 'Technicians',
+      key: 'id'
+    }
+  },
+  partner_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'Partners',
       key: 'id'
     }
   },

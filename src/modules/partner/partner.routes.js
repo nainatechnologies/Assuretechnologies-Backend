@@ -14,6 +14,8 @@ router.use('/admin', authMiddleware(['admin']));
 // Partner Endpoints
 router.get('/admin/partners', partnerController.getPartners);
 router.post('/admin/partners', validateRequest(authSchemas.partnerRegisterSchema), partnerController.createPartner);
+router.put('/admin/partners/:id', validateRequest(adminSchemas.updatePartnerSchema), partnerController.updatePartner);
+router.patch('/admin/partners/:id/status', partnerController.togglePartnerStatus);
 
 // Partner Types
 router.get('/admin/partner-types', partnerController.getPartnerTypes);

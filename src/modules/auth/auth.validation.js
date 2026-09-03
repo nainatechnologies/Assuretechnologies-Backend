@@ -116,8 +116,8 @@ const technicianRegisterSchema = z.object({
   password: strictPasswordValidation,
   full_name: nameValidation,
   address: addressValidation,
-  service_pincodes: z.array(z.string()).min(1, 'At least one service pincode is required'),
-  services_provided: z.array(z.string()).min(1, 'At least one service is required'),
+  service_pincodes: z.array(z.string().regex(/^\d{6}$/, 'Each service pincode must be a valid 6-digit pincode')).min(1, 'Please select at least one service pincode'),
+  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service'),
 });
 
 const droneRegisterSchema = z.object({
@@ -126,8 +126,8 @@ const droneRegisterSchema = z.object({
   password: strictPasswordValidation,
   full_name: nameValidation,
   address: addressValidation,
-  coverage_areas: z.array(z.string()).min(1, 'At least one coverage area is required'),
-  services_provided: z.array(z.string()).min(1, 'At least one service is required'),
+  coverage_areas: z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please select at least one coverage pincode'),
+  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service'),
 });
 
 const partnerRegisterSchema = z.object({
@@ -136,13 +136,26 @@ const partnerRegisterSchema = z.object({
   password: strictPasswordValidation,
   full_name: nameValidation,
   address: addressValidation,
-  coverage_areas: z.array(z.string()).min(1, 'At least one coverage area is required'),
-  services_provided: z.array(z.string()).min(1, 'At least one service is required'),
-  partner_type_id: z.string({ required_error: 'Partner type ID is required' }).uuid('Please select a valid Partner Type.'),
+  coverage_areas: z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please select at least one coverage pincode'),
+  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service'),
+  partner_type_id: z.string({ required_error: 'Please select a partner type' }).uuid('Please select a valid partner type'),
   custom_field_values: z.record(z.any()).optional()
 });
 
 const technicianSetPasswordSchema = z.object({
+  email: emailValidation,
+  old_password: loginPasswordValidation,
+  new_password: strictPasswordValidation,
+  confirm_password: z.string({ required_error: 'Please confirm your new password' })
+}).refine(data => data.new_password === data.confirm_password, {
+  message: 'Passwords do not match',
+  path: ['confirm_password']
+}).refine(data => data.old_password !== data.new_password, {
+  message: 'New password cannot be the same as the old password',
+  path: ['new_password']
+});
+
+const partnerSetPasswordSchema = z.object({
   email: emailValidation,
   old_password: loginPasswordValidation,
   new_password: strictPasswordValidation,
@@ -169,5 +182,6 @@ module.exports = {
   technicianRegisterSchema,
   droneRegisterSchema,
   partnerRegisterSchema,
-  technicianSetPasswordSchema
+  technicianSetPasswordSchema,
+  partnerSetPasswordSchema
 };

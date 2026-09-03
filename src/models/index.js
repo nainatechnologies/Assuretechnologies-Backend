@@ -92,6 +92,18 @@ Technician.hasMany(ServiceBooking, { foreignKey: 'assigned_technician_id', as: '
 JobProgress.belongsTo(ServiceBooking, { foreignKey: 'booking_id' });
 ServiceBooking.hasMany(JobProgress, { foreignKey: 'booking_id', as: 'progress_updates' });
 
+// JobProgress <-> Partner & Technician
+JobProgress.belongsTo(Partner, { foreignKey: 'partner_id', as: 'partner' });
+Partner.hasMany(JobProgress, { foreignKey: 'partner_id', as: 'progress_logs' });
+JobProgress.belongsTo(Technician, { foreignKey: 'technician_id', as: 'technician' });
+Technician.hasMany(JobProgress, { foreignKey: 'technician_id', as: 'progress_logs' });
+
 // ServiceBooking <-> ExtraItemsRequest
 ExtraItemsRequest.belongsTo(ServiceBooking, { foreignKey: 'booking_id' });
 ServiceBooking.hasMany(ExtraItemsRequest, { foreignKey: 'booking_id', as: 'extra_items' });
+
+// ExtraItemsRequest <-> Partner & Technician
+ExtraItemsRequest.belongsTo(Partner, { foreignKey: 'partner_id', as: 'partner' });
+Partner.hasMany(ExtraItemsRequest, { foreignKey: 'partner_id', as: 'extra_item_requests' });
+ExtraItemsRequest.belongsTo(Technician, { foreignKey: 'technician_id', as: 'technician' });
+Technician.hasMany(ExtraItemsRequest, { foreignKey: 'technician_id', as: 'extra_item_requests' });

@@ -19,7 +19,8 @@ router.post('/logout', (req, res) => {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    sameSite: 'lax',
+    path: '/'
   };
   res.clearCookie('token', cookieOptions);
   res.clearCookie('admin_token', cookieOptions);
@@ -47,6 +48,7 @@ router.post('/technician/set-password', validateRequest(authSchemas.technicianSe
 
 // Partner Auth
 router.post('/partner/login', validateRequest(authSchemas.partnerLoginSchema), partnerAuth.login);
+router.post('/partner/set-password', validateRequest(authSchemas.partnerSetPasswordSchema), partnerAuth.setPassword);
 
 
 // Customer Address routes

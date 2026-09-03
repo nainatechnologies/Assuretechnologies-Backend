@@ -96,6 +96,41 @@ const handleCustomerAction = asyncHandler(async (req, res) => {
   });
 });
 
+const getAvailablePartnersForBooking = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const availablePartners = await bookingService.getAvailablePartnersForBooking(id);
+  res.status(200).json({
+    success: true,
+    data: availablePartners
+  });
+});
+
+const getPartnerBookings = asyncHandler(async (req, res) => {
+  const bookings = await bookingService.getPartnerBookings(req.user.id);
+  res.status(200).json({
+    success: true,
+    data: bookings
+  });
+});
+
+const getPartnerBookingDetails = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const booking = await bookingService.getPartnerBookingDetails(id, req.user.id);
+  res.status(200).json({
+    success: true,
+    data: booking
+  });
+});
+
+const handlePartnerAction = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await bookingService.handlePartnerAction(id, req.user.id, req.body);
+  res.status(200).json({
+    success: true,
+    ...result
+  });
+});
+
 module.exports = {
   createBooking,
   getCustomerBookings,
@@ -106,5 +141,9 @@ module.exports = {
   assignBooking,
   getTechnicianBookings,
   getTechnicianBookingDetails,
-  handleTechnicianAction
+  handleTechnicianAction,
+  getAvailablePartnersForBooking,
+  getPartnerBookings,
+  getPartnerBookingDetails,
+  handlePartnerAction
 };

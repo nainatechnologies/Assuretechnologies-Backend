@@ -16,6 +16,14 @@ const getPartners = async () => {
 const createPartner = async (data) => {
   const { email, mobile, password, full_name, address, coverage_areas, services_provided, partner_type_id, custom_field_values } = data;
 
+  if (!services_provided || !Array.isArray(services_provided) || services_provided.length === 0) {
+    throw new AppError('At least one service is required for a partner.', 400);
+  }
+
+  if (!coverage_areas || !Array.isArray(coverage_areas) || coverage_areas.length === 0) {
+    throw new AppError('At least one coverage area (pincode) is required for a partner.', 400);
+  }
+
   const existingPartner = await Partner.findOne({ where: { email } });
   if (existingPartner) throw new AppError('Email already registered', 400);
 
@@ -26,8 +34,8 @@ const createPartner = async (data) => {
 
   const partner = await Partner.create({
     email, mobile, password_hash, full_name, address,
-    coverage_areas: coverage_areas || [],
-    services_provided: services_provided || [],
+    coverage_areas,
+    services_provided,
     partner_type_id,
     custom_field_values: custom_field_values || {},
     is_active: true
@@ -85,9 +93,52 @@ const togglePricingTypeStatus = async (id, is_active) => {
   return type;
 };
 
+const updatePartner = async (id, updateData) => {
+  const partner = await Partner.findByPk(id);
+  if (!partner) throw new AppError('Partner not found', 404);
+
+  if (updateData.email && updateData.email !== partner.email) {
+    const existingPartner = await Partner.findOne({ where: { email: updateData.email } });
+    if (existingPartner) throw new AppError('Email already registered', 400);
+  }
+
+  if (updateData.mobile && updateData.mobile !== partner.mobile) {
+    const existingMobile = await Partner.findOne({ where: { mobile: updateData.mobile } });
+    if (existingMobile) throw new AppError('Mobile already registered', 400);
+  }
+
+  if (updateData.password) {
+    updateData.password_hash = await hashPassword(updateData.password);
+    delete updateData.password;
+  }
+
+  if (updateData.services_provided && (!Array.isArray(updateData.services_provided) || updateData.services_provided.length === 0)) {
+    throw new AppError('At least one service is required for a partner.', 400);
+  }
+
+  if (updateData.coverage_areas && (!Array.isArray(updateData.coverage_areas) || updateData.coverage_areas.length === 0)) {
+    throw new AppError('At least one coverage area (pincode) is required for a partner.', 400);
+  }
+
+  await partner.update(updateData);
+  return await Partner.findByPk(id, {
+    attributes: { exclude: ['password_hash'] },
+    include: [{ model: PartnerType, as: 'partnerType' }]
+  });
+};
+
+const togglePartnerStatus = async (id, is_active) => {
+  const partner = await Partner.findByPk(id);
+  if (!partner) throw new AppError('Partner not found', 404);
+  await partner.update({ is_active });
+  return partner;
+};
+
 module.exports = {
   getPartners,
   createPartner,
+  updatePartner,
+  togglePartnerStatus,
   getPartnerTypes,
   createPartnerType,
   updatePartnerType,

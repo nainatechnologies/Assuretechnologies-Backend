@@ -15,7 +15,8 @@ const Technician = sequelize.define('Technician', {
   display_id: {
     type: DataTypes.VIRTUAL,
     get() {
-      return `TECH-${this.getDataValue('auto_id') + 1000}`;
+      const autoId = this.getDataValue('auto_id');
+      return autoId ? `TECH-${autoId + 1000}` : null;
     }
   },
   email: {

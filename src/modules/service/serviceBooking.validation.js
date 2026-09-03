@@ -82,8 +82,8 @@ const technicianActionSchema = z.object({
     errorMap: () => ({ message: `Action must be one of: ${TECHNICIAN_ACTIONS.join(', ')}` })
   }),
   description: z.string().optional(),
-  photos: z.array(z.string().url('Photos must be valid URLs')).optional().default([]),
-  photo_public_ids: z.array(z.string()).optional().default([]),
+  photos: z.array(z.string().url('Photos must be valid URLs')).max(3, 'You can upload up to 3 photos only').optional().default([]),
+  photo_public_ids: z.array(z.string()).max(3).optional().default([]),
   extraItems: z.array(z.object({
     description: z.string().min(1, 'Item description is required'),
     qty: z.number().int().positive('Quantity must be greater than 0'),
@@ -124,6 +124,38 @@ const customerActionSchema = z.discriminatedUnion('action', [
   }).strict()
 ]);
 
+const PARTNER_ACTIONS = ['START_WORK', 'PAUSE_WORK', 'RESUME_WORK', 'COMPLETE_WORK', 'ADD_PROGRESS', 'REQUEST_EXTRA_ITEMS'];
+
+const partnerActionSchema = z.object({
+  action: z.enum(PARTNER_ACTIONS, {
+    errorMap: () => ({ message: `Action must be one of: ${PARTNER_ACTIONS.join(', ')}` })
+  }),
+  description: z.string().optional(),
+  photos: z.array(z.string().url('Photos must be valid URLs')).max(3, 'You can upload up to 3 photos only').optional().default([]),
+  photo_public_ids: z.array(z.string()).max(3).optional().default([]),
+  extraItems: z.array(z.object({
+    description: z.string().min(1, 'Item description is required'),
+    qty: z.number().int().positive('Quantity must be greater than 0'),
+    metadata: z.record(z.any()).optional().nullable()
+  })).optional()
+}).refine(data => {
+  if (data.action === 'REQUEST_EXTRA_ITEMS' && (!data.extraItems || data.extraItems.length === 0)) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Extra items are required when action is REQUEST_EXTRA_ITEMS',
+  path: ['extraItems']
+}).refine(data => {
+  if (data.action === 'ADD_PROGRESS' && (!data.description || data.description.trim() === '')) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Description is required when adding progress updates',
+  path: ['description']
+});
+
 module.exports = {
   createServiceBookingSchema,
   verifyPaymentSchema,
@@ -131,8 +163,10 @@ module.exports = {
   updateBookingStatusParamSchema,
   assignBookingSchema,
   technicianActionSchema,
+  partnerActionSchema,
   customerActionSchema,
   BOOKING_STATUSES,
   TECHNICIAN_ACTIONS,
+  PARTNER_ACTIONS,
 };
 

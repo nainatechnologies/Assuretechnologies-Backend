@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../../config/database');
 const ServiceBooking = require('./serviceBooking.model');
 
+const ACTOR_TYPES = ['TECHNICIAN', 'PARTNER'];
 const EXTRA_ITEM_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 
 const ExtraItemsRequest = sequelize.define('ExtraItemsRequest', {
@@ -18,11 +19,24 @@ const ExtraItemsRequest = sequelize.define('ExtraItemsRequest', {
       key: 'id'
     }
   },
+  actor_type: {
+    type: DataTypes.ENUM(...ACTOR_TYPES),
+    allowNull: false,
+    defaultValue: 'TECHNICIAN'
+  },
   technician_id: {
     type: DataTypes.UUID,
     allowNull: true,
     references: {
       model: 'Technicians',
+      key: 'id'
+    }
+  },
+  partner_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'Partners',
       key: 'id'
     }
   },

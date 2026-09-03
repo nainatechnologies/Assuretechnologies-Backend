@@ -188,12 +188,12 @@ const handleCustomerAction = async (booking_id, user_id, actionData) => {
     if (uncancelableStatuses.includes(booking.status)) {
       throw new AppError(`Cannot cancel booking when it is in '${booking.status}' status`, 400);
     }
-    
+
     booking.status = 'CANCELLED';
     booking.cancelled_by = 'CUSTOMER';
     booking.cancellation_reason = actionData.reason || 'No reason provided';
     await booking.save();
-    
+
     // Optionally record JobProgress for cancellation history
     await JobProgress.create({
       booking_id: booking.id,
@@ -227,6 +227,17 @@ const handleCustomerAction = async (booking_id, user_id, actionData) => {
     extraItem.status = status;
     await extraItem.save();
 
+    // Record decision in JobProgress timeline
+    await JobProgress.create({
+      booking_id: booking.id,
+      actor_type: extraItem.actor_type || 'TECHNICIAN',
+      partner_id: extraItem.partner_id || null,
+      technician_id: extraItem.technician_id || null,
+      description: `Customer ${status === 'APPROVED' ? 'APPROVED' : 'DECLINED'} extra item: ${extraItem.description} (Qty: ${extraItem.qty})`,
+      photos: [],
+      update_type: 'PROGRESS'
+    });
+
     return {
       message: `Extra item request ${status} successfully`,
       extra_item: extraItem
@@ -251,6 +262,7 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
 
   const Customer = require('../customer/customer.model');
   const Technician = require('../technician/technician.model');
+  const Partner = require('../partner/partner.model');
   const JobProgress = require('./jobProgress.model');
 
   const { count, rows } = await ServiceBooking.findAndCountAll({
@@ -259,7 +271,7 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
       {
         model: Order,
         as: 'Order',
-        attributes: ['order_number', 'total_amount', 'payment_status', 'customer_name', 'customer_contact'],
+        attributes: ['order_number', 'total_amount', 'payment_status', 'customer_name', 'customer_contact', 'customer_address'],
         include: [
           {
             model: Customer,
@@ -271,18 +283,23 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
       {
         model: Service,
         as: 'Service',
-        attributes: ['id', 'name', 'service_owner_type', 'prebooking_charge'],
+        attributes: ['id', 'name', 'service_owner_type', 'prebooking_charge', 'required_partner_type_id'],
         where: Object.keys(serviceWhere).length > 0 ? serviceWhere : undefined
       },
       {
         model: Technician,
         as: 'assigned_technician',
-        attributes: ['id', 'full_name', 'mobile', 'email']
+        attributes: ['id', 'auto_id', 'display_id', 'full_name', 'mobile', 'email']
+      },
+      {
+        model: Partner,
+        as: 'assigned_partner',
+        attributes: ['id', 'auto_id', 'display_id', 'full_name', 'mobile', 'email']
       },
       {
         model: JobProgress,
         as: 'progress_updates',
-        attributes: ['id', 'description', 'photos', 'update_type', 'createdAt']
+        attributes: ['id', 'actor_type', 'partner_id', 'technician_id', 'description', 'photos', 'update_type', 'createdAt']
       }
     ],
     order: [['createdAt', 'DESC']],
@@ -329,7 +346,7 @@ const updateBookingStatus = async (booking_id, status, reason) => {
   if (!BOOKING_STATUSES.includes(status)) {
     throw new AppError(`Invalid status. Allowed values: ${BOOKING_STATUSES.join(', ')}`, 400);
   }
-  
+
   if (status === 'COMPLETED') {
     throw new AppError('Strict Policy: Only the customer can approve and complete this service.', 403);
   }
@@ -338,7 +355,7 @@ const updateBookingStatus = async (booking_id, status, reason) => {
   if (!booking) throw new AppError('Booking not found', 404);
 
   booking.status = status;
-  
+
   if (status === 'CANCELLED') {
     booking.cancelled_by = 'ADMIN';
     booking.cancellation_reason = reason || 'Cancelled by Admin';
@@ -428,7 +445,7 @@ const getTechnicianBookingDetails = async (booking_id, technician_id) => {
     where: { booking_id },
     order: [['createdAt', 'ASC']]
   });
-  
+
   const extraItems = await ExtraItemsRequest.findAll({
     where: { booking_id },
     order: [['createdAt', 'ASC']]
@@ -451,7 +468,7 @@ const handleTechnicianAction = async (booking_id, technician_id, actionData) => 
   if (!booking) throw new AppError('Booking not found or not assigned to you', 404);
 
   let newStatus = booking.status;
-  
+
   if (action === 'START_WORK') {
     if (booking.status !== 'ASSIGNED' && booking.status !== 'ACCEPTED') {
       throw new AppError(`Cannot start work from status: ${booking.status}`, 400);
@@ -479,10 +496,12 @@ const handleTechnicianAction = async (booking_id, technician_id, actionData) => 
   if (action === 'REQUEST_EXTRA_ITEMS') {
     progressDescription = description ? `Requested Extra Items: ${description}` : `Requested Extra Items`;
   }
-  
+
   const progressRecord = await JobProgress.create({
     booking_id,
+    actor_type: 'TECHNICIAN',
     technician_id,
+    partner_id: null,
     description: progressDescription,
     photos,
     photo_public_ids: actionData.photo_public_ids || [],
@@ -502,10 +521,183 @@ const handleTechnicianAction = async (booking_id, technician_id, actionData) => 
     await ExtraItemsRequest.bulkCreate(extraItemsData);
   }
 
-  return { 
+  return {
     message: `Action ${action} recorded successfully`,
     status: booking.status,
-    progressRecord 
+    progressRecord
+  };
+};
+
+const getAvailablePartnersForBooking = async (booking_id) => {
+  const booking = await ServiceBooking.findByPk(booking_id, {
+    include: [{ model: Service, as: 'Service' }]
+  });
+
+  if (!booking) throw new AppError('Booking not found', 404);
+  if (!booking.Service) throw new AppError('Service associated with this booking not found', 404);
+
+  const requiredPartnerTypeId = booking.Service.required_partner_type_id;
+  
+  if (!requiredPartnerTypeId) {
+    return []; // No specific partner type required, meaning no partner can be automatically matched based on type
+  }
+
+  const Partner = require('../partner/partner.model');
+  
+  // Fetch active partners with the exact required_partner_type_id
+  const matchingPartners = await Partner.findAll({
+    where: { 
+      partner_type_id: requiredPartnerTypeId,
+      is_active: true
+    },
+    attributes: { exclude: ['password_hash'] }
+  });
+
+  // Filter in memory for the pincode for maximum accuracy and cross-database compatibility
+  const bookingPincode = booking.pincode;
+  const availablePartners = matchingPartners.filter(partner => {
+    let areas = partner.coverage_areas || [];
+    if (typeof areas === 'string') {
+      try { areas = JSON.parse(areas); } catch (e) { areas = []; }
+    }
+    return Array.isArray(areas) && areas.includes(bookingPincode);
+  });
+
+  return availablePartners;
+};
+
+const getPartnerBookings = async (partner_id) => {
+  const bookings = await ServiceBooking.findAll({
+    where: { assigned_partner_id: partner_id },
+    include: [
+      {
+        model: Order,
+        as: 'Order',
+        attributes: ['order_number', 'customer_name', 'customer_contact', 'customer_address']
+      },
+      {
+        model: Service,
+        as: 'Service',
+        attributes: ['id', 'name', 'image', 'price', 'prebooking_charge']
+      },
+      {
+        model: JobProgress,
+        as: 'progress_updates',
+        attributes: ['id', 'actor_type', 'partner_id', 'technician_id', 'description', 'photos', 'update_type', 'createdAt']
+      },
+      {
+        model: ExtraItemsRequest,
+        as: 'extra_items',
+        attributes: ['id', 'description', 'qty', 'status', 'metadata', 'createdAt']
+      }
+    ],
+    order: [['scheduled_date', 'ASC'], ['createdAt', 'DESC']]
+  });
+
+  return bookings;
+};
+
+const getPartnerBookingDetails = async (booking_id, partner_id) => {
+  const booking = await ServiceBooking.findOne({
+    where: { id: booking_id, assigned_partner_id: partner_id },
+    include: [
+      {
+        model: Order,
+        as: 'Order',
+        attributes: ['order_number', 'customer_name', 'customer_contact', 'customer_address']
+      },
+      {
+        model: Service,
+        as: 'Service',
+        attributes: ['id', 'name', 'image', 'price', 'prebooking_charge']
+      },
+      {
+        model: ExtraItemsRequest,
+        as: 'extra_items',
+        attributes: ['id', 'description', 'qty', 'status', 'metadata', 'createdAt']
+      }
+    ]
+  });
+
+  if (!booking) throw new AppError('Booking not found or not assigned to you', 404);
+
+  const history = await JobProgress.findAll({
+    where: { booking_id },
+    order: [['createdAt', 'ASC']]
+  });
+
+  return {
+    ...booking.toJSON(),
+    progress_history: history
+  };
+};
+
+const handlePartnerAction = async (booking_id, partner_id, actionData) => {
+  const { action, description, photos = [], extraItems = [] } = actionData;
+
+  const booking = await ServiceBooking.findOne({
+    where: { id: booking_id, assigned_partner_id: partner_id }
+  });
+
+  if (!booking) throw new AppError('Booking not found or not assigned to you', 404);
+
+  let newStatus = booking.status;
+
+  if (action === 'START_WORK') {
+    if (booking.status !== 'ASSIGNED' && booking.status !== 'ACCEPTED') {
+      throw new AppError(`Cannot start work from status: ${booking.status}`, 400);
+    }
+    newStatus = 'IN_PROGRESS';
+  } else if (action === 'COMPLETE_WORK') {
+    if (booking.status !== 'IN_PROGRESS') {
+      throw new AppError(`Cannot complete work from status: ${booking.status}`, 400);
+    }
+    newStatus = 'AWAITING_APPROVAL';
+  } else if (action === 'PAUSE_WORK' || action === 'RESUME_WORK' || action === 'ADD_PROGRESS' || action === 'REQUEST_EXTRA_ITEMS') {
+    if (booking.status !== 'IN_PROGRESS') {
+      throw new AppError(`Job must be IN_PROGRESS to perform this action`, 400);
+    }
+  }
+
+  if (newStatus !== booking.status) {
+    booking.status = newStatus;
+    await booking.save();
+  }
+
+  let progressDescription = description || `Action: ${action}`;
+  if (action === 'REQUEST_EXTRA_ITEMS') {
+    progressDescription = description ? `Requested Extra Items: ${description}` : `Requested Extra Items`;
+  }
+
+  const progressRecord = await JobProgress.create({
+    booking_id,
+    actor_type: 'PARTNER',
+    partner_id,
+    technician_id: null,
+    description: progressDescription,
+    photos,
+    photo_public_ids: actionData.photo_public_ids || [],
+    update_type: action === 'START_WORK' ? 'START' : (action === 'COMPLETE_WORK' ? 'COMPLETE' : 'PROGRESS')
+  });
+
+  if (action === 'REQUEST_EXTRA_ITEMS' && extraItems.length > 0) {
+    const extraItemsData = extraItems.map(item => ({
+      booking_id,
+      actor_type: 'PARTNER',
+      partner_id,
+      technician_id: null,
+      description: item.description,
+      qty: item.qty,
+      metadata: item.metadata || null,
+      status: 'PENDING'
+    }));
+    await ExtraItemsRequest.bulkCreate(extraItemsData);
+  }
+
+  return {
+    message: `Action ${action} recorded successfully`,
+    status: booking.status,
+    progressRecord
   };
 };
 
@@ -519,5 +711,9 @@ module.exports = {
   assignBooking,
   getTechnicianBookings,
   getTechnicianBookingDetails,
-  handleTechnicianAction
+  handleTechnicianAction,
+  getAvailablePartnersForBooking,
+  getPartnerBookings,
+  getPartnerBookingDetails,
+  handlePartnerAction
 };

@@ -16,7 +16,8 @@ const Partner = sequelize.define('Partner', {
   display_id: {
     type: DataTypes.VIRTUAL,
     get() {
-      return `PRT-${this.getDataValue('auto_id') + 1000}`;
+      const autoId = this.getDataValue('auto_id');
+      return autoId ? `PRT-${autoId + 1000}` : null;
     }
   },
   email: {

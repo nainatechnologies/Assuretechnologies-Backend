@@ -11,6 +11,19 @@ const createPartner = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: partner });
 });
 
+const updatePartner = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const partner = await partnerService.updatePartner(id, req.body);
+  res.status(200).json({ success: true, message: 'Partner updated successfully', data: partner });
+});
+
+const togglePartnerStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { is_active } = req.body;
+  const result = await partnerService.togglePartnerStatus(id, is_active);
+  res.status(200).json({ success: true, message: 'Partner status updated successfully', data: result });
+});
+
 const getPartnerTypes = asyncHandler(async (req, res) => {
   const types = await partnerService.getPartnerTypes();
   res.status(200).json({ success: true, data: types });
@@ -60,6 +73,8 @@ const togglePricingTypeStatus = asyncHandler(async (req, res) => {
 module.exports = {
   getPartners,
   createPartner,
+  updatePartner,
+  togglePartnerStatus,
   getPartnerTypes,
   createPartnerType,
   updatePartnerType,
