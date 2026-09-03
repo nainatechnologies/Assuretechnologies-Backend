@@ -30,7 +30,11 @@ app.use(cors({
   credentials: true
 }));
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
@@ -57,6 +61,8 @@ const serviceRoutes = require('./modules/service/service.routes');
 const careerRoutes = require('./modules/career/career.routes');
 const serviceBookingRoutes = require('./modules/service/serviceBooking.routes');
 const partnerRoutes = require('./modules/partner/partner.routes');
+const notificationRoutes = require('./modules/notification/notification.routes');
+
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
@@ -70,6 +76,8 @@ app.use('/api', serviceRoutes);
 app.use('/api/career', careerRoutes);
 app.use('/api', serviceBookingRoutes);
 app.use('/api', partnerRoutes);
+app.use('/api/notifications', notificationRoutes);
+
 
 // Global Error Handler (must be the last middleware)
 const errorMiddleware = require('./middleware/errorMiddleware');

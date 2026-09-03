@@ -12,7 +12,8 @@ const CustomerAddress = sequelize.define('CustomerAddress', {
   address_line2: { type: DataTypes.STRING, allowNull: true },
   landmark: { type: DataTypes.STRING, allowNull: true },
   city: { type: DataTypes.STRING, allowNull: false },
-  state: { type: DataTypes.STRING, allowNull: false }
+  state: { type: DataTypes.STRING, allowNull: false },
+  is_default: { type: DataTypes.BOOLEAN, defaultValue: false }
 }, { timestamps: true, tableName: 'CustomerAddresses' });
 
 Customer.hasMany(CustomerAddress, { foreignKey: 'customer_id', as: 'addresses' });

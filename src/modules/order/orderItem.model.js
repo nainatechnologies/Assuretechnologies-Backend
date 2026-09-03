@@ -3,6 +3,7 @@ const { sequelize } = require('../../config/database');
 const Order = require('./order.model');
 const Product = require('../product/product.model');
 const Vendor = require('../vendor/vendor.model');
+const VendorPayout = require('../vendor/vendorPayout.model');
 
 const OrderItem = sequelize.define('OrderItem', {
   id: {
@@ -64,6 +65,22 @@ const OrderItem = sequelize.define('OrderItem', {
   tracking_url: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  is_vendor_paid: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  vendor_payout_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: VendorPayout,
+      key: 'id'
+    }
+  },
+  vendor_paid_at: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   timestamps: true,
@@ -75,5 +92,8 @@ Order.hasMany(OrderItem, { foreignKey: 'order_id', as: 'items' });
 
 OrderItem.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 OrderItem.belongsTo(Vendor, { foreignKey: 'vendor_id', as: 'vendor' });
+
+OrderItem.belongsTo(VendorPayout, { foreignKey: 'vendor_payout_id', as: 'payout' });
+VendorPayout.hasMany(OrderItem, { foreignKey: 'vendor_payout_id', as: 'items' });
 
 module.exports = OrderItem;

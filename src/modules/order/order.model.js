@@ -73,6 +73,18 @@ const Order = sequelize.define('Order', {
   tracking_url: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  razorpay_order_id: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  razorpay_payment_id: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  razorpay_signature: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   timestamps: true,
@@ -80,5 +92,6 @@ const Order = sequelize.define('Order', {
 });
 
 Order.belongsTo(Customer, { foreignKey: 'customer_id', as: 'customer' });
+Customer.hasMany(Order, { foreignKey: 'customer_id', as: 'orders' });
 
 module.exports = Order;
