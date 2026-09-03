@@ -17,7 +17,7 @@
 - **Environment Variables:** Never hardcode secrets. Always use `process.env.VARIABLE_NAME`.
 
 ## CRITICAL SAFETY & BOUNDARIES (Database & Schemas)
-- **NEVER use `sequelize.sync({ force: true })`** — This will drop all tables and destroy live data. During initial dev, `sequelize.sync({ alter: true })` is acceptable, but eventually, all schema changes MUST go through formal Sequelize Migrations.
+- **NEVER use `sequelize.sync()` in any form** — Neither `force: true` nor `alter: true` is acceptable. `force: true` drops all tables and destroys live data. `alter: true` is unpredictable and bypasses version control. ALL schema changes — including during initial development — MUST go through formal Sequelize CLI migrations (`npx sequelize-cli migration:generate` → fill up/down → `npx sequelize-cli db:migrate`). No exceptions.
 - **Role Isolation:** Always respect the 5-portal isolation rule. Do NOT merge Admins, Customers, Vendors, Technicians, and Drones into a single table. They must remain isolated per the Master PRD.
 - **Data Privacy:** NEVER log plain-text passwords, JWT tokens, or full user objects to the console (`console.log`).
 - **Security:** Always hash passwords with `bcryptjs` before a `save()` or `create()` operation.

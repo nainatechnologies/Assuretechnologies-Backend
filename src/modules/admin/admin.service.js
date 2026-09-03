@@ -352,7 +352,10 @@ const getPaymentSummary = async () => {
 
   // 3. Pending Vendor Payouts
   const unpaidItems = await OrderItem.findAll({
-    where: { is_vendor_paid: false },
+    where: {
+      vendor_id: { [Op.ne]: null },
+      is_vendor_paid: false
+    },
     include: [{
       model: Order,
       as: 'order',
@@ -371,9 +374,17 @@ const getPaymentSummary = async () => {
     totalAdminCommissionPending += commission;
   });
 
+  const rev = Math.round(totalCustomerPaid * 100) / 100;
+  const pay = Math.round(totalVendorSettled * 100) / 100;
+
   return {
+    totalRevenue: rev,
+    totalPayouts: pay,
+    netBalance: Math.round((rev - pay) * 100) / 100,
+    pendingPayoutsCount: unpaidItems.length,
+    pendingPayoutAmount: Math.round(totalPendingVendorPayout * 100) / 100,
     inflow: {
-      totalCustomerPaid: Math.round(totalCustomerPaid * 100) / 100,
+      totalCustomerPaid: rev,
       todayCollection: Math.round(todayCollection * 100) / 100,
       thisWeekCollection: Math.round(thisWeekCollection * 100) / 100,
       thisMonthCollection: Math.round(thisMonthCollection * 100) / 100,
@@ -408,7 +419,7 @@ const getPaymentTransactions = async ({ page = 1, limit = 10, search = '', type 
 
   const orders = await Order.findAll({
     where: orderWhere,
-    attributes: ['id', 'order_number', 'total_amount', 'payment_status', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'createdAt'],
+    attributes: ['id', 'order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'createdAt'],
     order: [['createdAt', 'DESC']],
     limit: 200
   });
@@ -422,7 +433,7 @@ const getPaymentTransactions = async ({ page = 1, limit = 10, search = '', type 
     party: o.customer_name || 'Customer',
     contact: o.customer_contact || '',
     amount: parseFloat(o.total_amount || 0),
-    method: o.razorpay_payment_id ? 'Razorpay (Online)' : 'Cash / Direct',
+    method: o.payment_method ? (o.payment_method === 'UPI' ? 'UPI / QR Code' : o.payment_method === 'CARD' ? 'Card Payment' : o.payment_method) : (o.razorpay_payment_id ? 'Razorpay (Online)' : 'Cash / Direct'),
     status: o.payment_status ? o.payment_status.toLowerCase() : 'pending',
     proof_image: null,
     notes: `Customer Order #${o.order_number}`

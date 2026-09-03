@@ -15,6 +15,8 @@ const CartItem = require('../modules/cart/cartItem.model');
 const Invoice = require('../modules/invoice/invoice.model');
 const InvoiceItem = require('../modules/invoice/invoiceItem.model');
 const { JobPosting, JobApplication } = require('../modules/career/career.model');
+const Quotation = require('../modules/quotation/quotation.model');
+const QuotationItem = require('../modules/quotation/quotationItem.model');
 const VendorPayout = require('../modules/vendor/vendorPayout.model');
 
 // Service Models
@@ -47,6 +49,8 @@ module.exports = {
   JobPosting,
   JobApplication,
   VendorPayout,
+  Quotation,
+  QuotationItem,
 };
 
 Customer.hasOne(Cart, { foreignKey: 'customer_id' });
@@ -111,3 +115,7 @@ ExtraItemsRequest.belongsTo(Partner, { foreignKey: 'partner_id', as: 'partner' }
 Partner.hasMany(ExtraItemsRequest, { foreignKey: 'partner_id', as: 'extra_item_requests' });
 ExtraItemsRequest.belongsTo(Technician, { foreignKey: 'technician_id', as: 'technician' });
 Technician.hasMany(ExtraItemsRequest, { foreignKey: 'technician_id', as: 'extra_item_requests' });
+
+// Quotation Associations
+Quotation.hasMany(QuotationItem, { foreignKey: 'quotation_id', as: 'items', onDelete: 'CASCADE' });
+QuotationItem.belongsTo(Quotation, { foreignKey: 'quotation_id', as: 'quotation' });
