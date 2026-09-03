@@ -3,19 +3,28 @@ const Service = require('./service.model');
 const Order = require('../order/order.model');
 const AppError = require('../../utils/AppError');
 const { BOOKING_STATUSES } = require('./serviceBooking.validation');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+const { finalizePaidOrder } = require('../order/order.service');
 
-// Simulated Razorpay integration placeholder
 const createRazorpayOrder = async (amount, receipt_id) => {
-  // In real implementation:
-  // const options = { amount: amount * 100, currency: "INR", receipt: receipt_id };
-  // const order = await razorpay.orders.create(options);
-  // return order.id;
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET
+  });
 
-  return `rzp_test_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  const options = {
+    amount: Math.round(amount * 100),
+    currency: 'INR',
+    receipt: receipt_id
+  };
+
+  const razorpayOrder = await razorpay.orders.create(options);
+  return razorpayOrder.id;
 };
 
 const createBooking = async (bookingData, user) => {
-  const { service_id, scheduled_date, address, pincode, lat, lng, quantity = 1, metadata = {} } = bookingData;
+  const { service_id, scheduled_date, scheduled_time_slot, address, pincode, lat, lng, quantity = 1, metadata = {} } = bookingData;
   const customer_id = user.id;
 
   // 1. Fetch Service and validate
@@ -27,16 +36,10 @@ const createBooking = async (bookingData, user) => {
     throw new AppError('This service is currently inactive', 400);
   }
 
-  // 2. Calculate Final Price
-  let final_price = 0;
-
-  if (service.service_owner_type === 'ADMIN') {
-    final_price = parseFloat(service.prebooking_charge || 0);
-  } else {
-    const rate = parseFloat(service.price || 0);
-    const parsedQty = parseFloat(quantity || 1);
-    final_price = rate * parsedQty;
-  }
+  // 2. Calculate Final Price based on quantity * unit charge
+  const rate = parseFloat(service.price || service.prebooking_charge || 0);
+  const parsedQty = parseFloat(quantity || 1);
+  const final_price = Math.round(rate * parsedQty * 100) / 100;
 
   const now = new Date();
   const datePart = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
@@ -66,11 +69,12 @@ const createBooking = async (bookingData, user) => {
     order_id: order.id,
     service_id,
     scheduled_date,
+    scheduled_time_slot: scheduled_time_slot || null,
     address: typeof address === 'object' ? JSON.stringify(address) : address,
     pincode,
     lat,
     lng,
-    quantity,
+    quantity: parsedQty,
     metadata,
     status: 'NEW',
     prebooking_paid: false
@@ -87,6 +91,7 @@ const createBooking = async (bookingData, user) => {
     order_number: order.order_number,
     total_amount: final_price,
     razorpay_order_id,
+    razorpay_key_id: process.env.RAZORPAY_KEY_ID || null,
     requires_payment: final_price > 0
   };
 };
@@ -108,12 +113,12 @@ const getCustomerBookings = async (user, booking_id = null) => {
         model: Order,
         as: 'Order',
         where: { customer_id: user.id },
-        attributes: ['order_number', 'total_amount', 'payment_status', 'customer_name', 'customer_contact']
+        attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact']
       },
       {
         model: Service,
         as: 'Service',
-        attributes: ['id', 'name', 'image', 'service_owner_type', 'prebooking_charge']
+        attributes: ['id', 'name', 'image', 'price', 'service_owner_type', 'prebooking_charge']
       },
       {
         model: Technician,
@@ -194,6 +199,33 @@ const handleCustomerAction = async (booking_id, user_id, actionData) => {
     booking.cancellation_reason = actionData.reason || 'No reason provided';
     await booking.save();
 
+    // Process Razorpay refund request if booking was paid
+    if (booking.order_id) {
+      const order = await Order.findByPk(booking.order_id);
+      if (order) {
+        order.status = 'CANCELLED';
+        if (order.payment_status === 'PAID' || booking.prebooking_paid) {
+          order.payment_status = 'REFUND_PENDING';
+          order.refund_status = 'REQUESTED';
+          order.refund_amount = order.total_amount;
+          order.refund_reason = actionData.reason || 'Customer cancelled service booking';
+
+          try {
+            const notificationService = require('../notification/notification.service');
+            notificationService.createNotification({
+              title: 'Service Refund Requested',
+              message: `Customer cancelled Service Booking #${order.order_number}. Refund of ₹${order.total_amount} requested.`,
+              type: 'REFUND',
+              action_url: '/admin/payments?tab=refunds',
+              target_role: 'admin',
+              metadata: { order_number: order.order_number, refund_amount: order.total_amount }
+            });
+          } catch (e) {}
+        }
+        await order.save();
+      }
+    }
+
     // Optionally record JobProgress for cancellation history
     await JobProgress.create({
       booking_id: booking.id,
@@ -204,8 +236,9 @@ const handleCustomerAction = async (booking_id, user_id, actionData) => {
     });
 
     return {
-      message: 'Service booking cancelled successfully',
-      status: 'CANCELLED'
+      message: 'Service booking cancelled and refund requested successfully',
+      status: 'CANCELLED',
+      booking
     };
   }
 
@@ -271,7 +304,7 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
       {
         model: Order,
         as: 'Order',
-        attributes: ['order_number', 'total_amount', 'payment_status', 'customer_name', 'customer_contact', 'customer_address'],
+        attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'customer_address'],
         include: [
           {
             model: Customer,
@@ -283,7 +316,7 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
       {
         model: Service,
         as: 'Service',
-        attributes: ['id', 'name', 'service_owner_type', 'prebooking_charge', 'required_partner_type_id'],
+        attributes: ['id', 'name', 'service_owner_type', 'price', 'prebooking_charge', 'required_partner_type_id'],
         where: Object.keys(serviceWhere).length > 0 ? serviceWhere : undefined
       },
       {
@@ -320,7 +353,7 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
 
 const verifyPayment = async (booking_id, payment_data, user) => {
   const booking = await ServiceBooking.findByPk(booking_id, {
-    include: [{ model: Order, as: 'Order' }]
+    include: [{ model: Order, as: 'Order' }, { model: Service, as: 'Service' }]
   });
 
   if (!booking) throw new AppError('Booking not found', 404);
@@ -329,17 +362,36 @@ const verifyPayment = async (booking_id, payment_data, user) => {
     throw new AppError('You are not authorized to verify this booking', 403);
   }
 
-  if (!payment_data || Object.keys(payment_data).length === 0) {
-    throw new AppError('Payment verification details are required', 400);
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = payment_data;
+
+  if (razorpay_order_id && razorpay_payment_id && razorpay_signature) {
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(body.toString())
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      throw new AppError('Invalid payment signature', 400);
+    }
   }
+
+  // Enrich payment details in Order using finalizePaidOrder
+  await finalizePaidOrder(booking.Order, {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature
+  });
 
   booking.prebooking_paid = true;
   await booking.save();
 
-  booking.Order.payment_status = 'PAID';
-  await booking.Order.save();
-
-  return { message: 'Payment verified and booking confirmed' };
+  return {
+    message: 'Payment verified and booking confirmed',
+    booking_id: booking.id,
+    order_number: booking.Order.order_number
+  };
 };
 
 const updateBookingStatus = async (booking_id, status, reason) => {

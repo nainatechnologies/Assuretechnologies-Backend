@@ -48,7 +48,8 @@ exports.updateOrderStatus = asyncHandler(async (req, res) => {
 
 exports.cancelOrder = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
-  const result = await orderService.cancelOrder(orderId, req.user);
+  const { reason } = req.body || {};
+  const result = await orderService.cancelOrder(orderId, req.user, reason);
   res.status(200).json(result);
 });
 
@@ -70,3 +71,26 @@ exports.handleRazorpayWebhook = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+
+
+exports.getAdminRefunds = asyncHandler(async (req, res) => {
+  const result = await orderService.getAdminRefunds(req.query);
+  res.status(200).json({
+    success: true,
+    refunds: result.refunds,
+    data: result.refunds,
+    pagination: result.pagination
+  });
+});
+
+exports.processRefund = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.processRefund(orderId, req.body, req.user);
+  res.status(200).json(result);
+});
+
+exports.rejectRefund = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.rejectRefund(orderId, req.body, req.user);
+  res.status(200).json(result);
+});

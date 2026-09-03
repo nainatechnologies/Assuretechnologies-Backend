@@ -15,7 +15,10 @@ const createOrderSchema = z.object({
 });
 
 const updateOrderStatusSchema = z.object({
-  status: z.enum(['NEW', 'ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED'])
+  status: z.enum(['NEW', 'ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED']).optional(),
+  payment_status: z.enum(['PENDING', 'PAID', 'FAILED', 'REFUNDED']).optional()
+}).refine(data => data.status !== undefined || data.payment_status !== undefined, {
+  message: 'At least one of status or payment_status must be provided'
 });
 
 const updateOrderTrackingSchema = z.object({

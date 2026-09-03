@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const { Order, OrderItem, Product, Customer, Vendor, Cart, CartItem } = require('../../models');
 const { sequelize } = require('../../config/database');
 const AppError = require('../../utils/AppError');
@@ -47,12 +48,68 @@ const restoreOrderStock = async (orderId, transaction = null) => {
   }
 };
 
-const finalizePaidOrder = async (order, { razorpay_order_id, razorpay_payment_id, razorpay_signature } = {}, transaction = null) => {
+const finalizePaidOrder = async (order, { razorpay_order_id, razorpay_payment_id, razorpay_signature, paymentEntity } = {}, transaction = null) => {
   const wasAlreadyPaid = order.payment_status === 'PAID';
   order.payment_status = 'PAID';
   if (razorpay_order_id) order.razorpay_order_id = razorpay_order_id;
   if (razorpay_payment_id) order.razorpay_payment_id = razorpay_payment_id;
   if (razorpay_signature) order.razorpay_signature = razorpay_signature;
+
+  // Enrich payment details from Razorpay
+  if (paymentEntity) {
+    order.payment_method = (paymentEntity.method || 'ONLINE').toUpperCase();
+    order.payment_details = {
+      method: paymentEntity.method,
+      vpa: paymentEntity.vpa || null,
+      card: paymentEntity.card ? {
+        network: paymentEntity.card.network,
+        last4: paymentEntity.card.last4,
+        type: paymentEntity.card.type,
+        issuer: paymentEntity.card.issuer
+      } : null,
+      bank: paymentEntity.bank || null,
+      wallet: paymentEntity.wallet || null
+    };
+    if (paymentEntity.created_at) {
+      order.paid_at = new Date(paymentEntity.created_at * 1000);
+    }
+  } else if (razorpay_payment_id) {
+    try {
+      const razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET
+      });
+      const p = await razorpay.payments.fetch(razorpay_payment_id);
+      if (p) {
+        order.payment_method = (p.method || 'ONLINE').toUpperCase();
+        order.payment_details = {
+          method: p.method,
+          vpa: p.vpa || null,
+          card: p.card ? {
+            network: p.card.network,
+            last4: p.card.last4,
+            type: p.card.type,
+            issuer: p.card.issuer
+          } : null,
+          bank: p.bank || null,
+          wallet: p.wallet || null
+        };
+        if (p.created_at) {
+          order.paid_at = new Date(p.created_at * 1000);
+        }
+      }
+    } catch (fetchErr) {
+      console.warn('Could not fetch payment details from Razorpay for order:', fetchErr.message);
+    }
+  }
+
+  if (!order.paid_at) {
+    order.paid_at = new Date();
+  }
+  if (!order.payment_method) {
+    order.payment_method = 'ONLINE';
+  }
+
   await order.save({ transaction });
 
   let lowStockProducts = [];
@@ -170,10 +227,7 @@ const createOrder = async (orderData, user) => {
       const product = await Product.findByPk(item.product_id, { transaction: t });
       if (!product) {
         throw new AppError(`Product not found: ${item.product_id}`, 404);
-      }
 
-      if ((product.stock || 0) < item.qty) {
-        throw new AppError(`Insufficient stock for product "${product.name}". Available: ${product.stock || 0}`, 400);
       }
 
       const price = parseFloat(product.base_price);
@@ -247,12 +301,20 @@ const createOrder = async (orderData, user) => {
   return { message: 'Order created successfully', order, razorpayOrderId };
 };
 
-const getOrders = async (user) => {
+const getOrders = async (user, query = {}) => {
   const whereClause = {};
   if (user && user.role === 'customer') {
     whereClause.customer_id = user.id;
   } else if (user && (user.role === 'admin' || user.role === 'vendor')) {
     whereClause.payment_status = 'PAID';
+  }
+
+  if (query.status && query.status !== 'All') {
+    whereClause.status = query.status.toUpperCase();
+  }
+
+  if (query.search) {
+    whereClause.order_number = { [Op.like]: `%${query.search.trim()}%` };
   }
 
   let itemWhereClause = undefined;
@@ -262,7 +324,11 @@ const getOrders = async (user) => {
     requiredVendor = true;
   }
 
-  const orders = await Order.findAll({
+  const page = query.page ? parseInt(query.page) : null;
+  const limit = query.limit ? parseInt(query.limit) : null;
+  const offset = page && limit ? (page - 1) * limit : null;
+
+  const findOptions = {
     where: whereClause,
     include: [
       {
@@ -289,9 +355,26 @@ const getOrders = async (user) => {
         attributes: ['id', 'full_name', 'email', 'mobile']
       }
     ],
-    order: [['createdAt', 'DESC']]
-  });
+    order: [['createdAt', 'DESC']],
+    distinct: true
+  };
 
+  if (limit) {
+    findOptions.limit = limit;
+    findOptions.offset = offset;
+    const { count, rows } = await Order.findAndCountAll(findOptions);
+    return {
+      orders: rows,
+      pagination: {
+        page: page || 1,
+        limit,
+        total: count,
+        totalPages: Math.ceil(count / limit)
+      }
+    };
+  }
+
+  const orders = await Order.findAll(findOptions);
   return orders;
 };
 
@@ -379,6 +462,13 @@ const updateOrderStatus = async (orderId, updateData) => {
   const order = await Order.findOne({ where: { order_number: orderId } });
   if (!order) { throw new AppError('Order not found', 404); }
 
+  if (updateData.payment_status) {
+    order.payment_status = updateData.payment_status;
+    if (updateData.payment_status === 'PAID') {
+      order.paid_at = new Date();
+    }
+  }
+
   if (['ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED'].includes(updateData.status) && order.payment_status !== 'PAID') {
     throw new AppError('Cannot accept or dispatch an order with unpaid payment status', 400);
   }
@@ -388,7 +478,7 @@ const updateOrderStatus = async (orderId, updateData) => {
   return { message: 'Order status updated successfully', order };
 };
 
-const cancelOrder = async (orderId, user) => {
+const cancelOrder = async (orderId, user, cancelReason = '') => {
   const order = await Order.findOne({ where: { order_number: orderId } });
   if (!order) { throw new AppError('Order not found', 404); }
   if (user.role !== 'admin' && order.customer_id !== user.id) { throw new AppError('Not authorized to cancel this order', 403); }
@@ -396,14 +486,219 @@ const cancelOrder = async (orderId, user) => {
   
   const wasPaid = order.payment_status === 'PAID';
   order.status = 'CANCELLED';
-  await order.save();
 
-  // Restore inventory stock if this order was paid
   if (wasPaid) {
+    order.payment_status = 'REFUND_PENDING';
+    order.refund_status = 'REQUESTED';
+    order.refund_amount = order.total_amount;
+    order.refund_reason = cancelReason || 'Customer requested order cancellation';
+
+    // Alert Admin about new refund request
+    try {
+      const notificationService = require('../notification/notification.service');
+      notificationService.createNotification({
+        title: 'Refund Requested',
+        message: `Customer ${order.customer_name || 'Customer'} requested a refund of ₹${parseFloat(order.total_amount || 0).toFixed(2)} for Order #${order.order_number}`,
+        type: 'REFUND',
+        action_url: '/admin/payments?tab=refunds',
+        target_role: 'admin',
+        metadata: { order_id: order.id, order_number: order.order_number, refund_amount: order.total_amount }
+      });
+    } catch (e) {
+      console.error('Failed to dispatch refund notification to admin:', e);
+    }
+
     await restoreOrderStock(order.id);
+  } else {
+    order.refund_status = 'NONE';
   }
 
+  await order.save();
   return { message: 'Order cancelled successfully', order };
+};
+
+const getAdminRefunds = async (query = {}) => {
+  const page = parseInt(query.page) || 1;
+  const limit = parseInt(query.limit) || 10;
+  const offset = (page - 1) * limit;
+  const status = query.status || 'ALL';
+  const search = query.search ? query.search.trim() : null;
+
+  const whereClause = {
+    [Op.or]: [
+      { refund_status: { [Op.ne]: 'NONE' } },
+      { payment_status: { [Op.in]: ['REFUND_PENDING', 'REFUNDED'] } }
+    ]
+  };
+
+  if (status && status !== 'ALL') {
+    whereClause.refund_status = status.toUpperCase();
+  }
+
+  if (search) {
+    whereClause[Op.and] = [
+      {
+        [Op.or]: [
+          { order_number: { [Op.like]: `%${search}%` } },
+          { customer_name: { [Op.like]: `%${search}%` } },
+          { customer_contact: { [Op.like]: `%${search}%` } }
+        ]
+      }
+    ];
+  }
+
+  const { count, rows } = await Order.findAndCountAll({
+    where: whereClause,
+    include: [
+      {
+        model: OrderItem,
+        as: 'items',
+        include: [
+          {
+            model: Product,
+            as: 'product',
+            attributes: ['id', 'name', 'banner', 'base_price']
+          }
+        ]
+      },
+      {
+        model: Customer,
+        as: 'customer',
+        attributes: ['id', 'full_name', 'email', 'mobile']
+      }
+    ],
+    order: [['updatedAt', 'DESC']],
+    distinct: true,
+    limit,
+    offset
+  });
+
+  return {
+    refunds: rows,
+    pagination: {
+      page,
+      limit,
+      total: count,
+      totalPages: Math.ceil(count / limit)
+    }
+  };
+};
+
+const processRefund = async (orderId, refundPayload, adminUser) => {
+  const { amount, mode = 'GATEWAY', referenceNote } = refundPayload;
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) throw new AppError('Order not found', 404);
+
+  if (order.refund_status === 'PROCESSED') {
+    throw new AppError('This order has already been refunded', 400);
+  }
+
+  const parsedAmount = parseFloat(amount || order.total_amount);
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    throw new AppError('Please enter a valid positive refund amount', 400);
+  }
+
+  if (parsedAmount > parseFloat(order.total_amount)) {
+    throw new AppError(`Refund amount cannot exceed the paid total of ₹${order.total_amount}`, 400);
+  }
+
+  let finalRefundId = null;
+
+  if (mode === 'GATEWAY') {
+    if (!order.razorpay_payment_id) {
+      throw new AppError('Cannot process gateway refund: No Razorpay payment ID found on this order. Use manual mode instead.', 400);
+    }
+
+    const Razorpay = require('razorpay');
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_TUJt0fwUv206Vf',
+      key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret'
+    });
+
+    try {
+      const rzpRefund = await razorpay.payments.refund(order.razorpay_payment_id, {
+        amount: Math.round(parsedAmount * 100),
+        notes: {
+          order_number: order.order_number,
+          processed_by: adminUser?.email || 'admin'
+        }
+      });
+      finalRefundId = rzpRefund.id;
+    } catch (rzpErr) {
+      console.error('Razorpay Refund API error:', rzpErr);
+      throw new AppError(rzpErr.error?.description || rzpErr.message || 'Razorpay refund processing failed', 400);
+    }
+  } else {
+    // Manual settlement
+    finalRefundId = referenceNote ? referenceNote.trim() : `MANUAL-REF-${Date.now()}`;
+  }
+
+  order.payment_status = 'REFUNDED';
+  order.refund_status = 'PROCESSED';
+  order.refund_id = finalRefundId;
+  order.refund_amount = parsedAmount;
+  order.refund_mode = mode;
+  order.refunded_at = new Date();
+  await order.save();
+
+  // Notify customer
+  if (order.customer_id) {
+    try {
+      const notificationService = require('../notification/notification.service');
+      notificationService.createNotification({
+        title: 'Refund Approved & Processed',
+        message: `Your refund of ₹${parsedAmount.toFixed(2)} for Order #${order.order_number} has been processed (${mode === 'GATEWAY' ? 'Credited to source method in 5-7 business days' : 'Settled manually: ' + finalRefundId})`,
+        type: 'REFUND',
+        action_url: '/orders/' + order.order_number,
+        target_role: 'customer',
+        target_user_id: order.customer_id,
+        metadata: { order_number: order.order_number, refund_amount: parsedAmount, refund_id: finalRefundId }
+      });
+    } catch (e) {
+      console.error('Failed to notify customer of refund:', e);
+    }
+  }
+
+  return { message: 'Refund processed successfully', order };
+};
+
+const rejectRefund = async (orderId, rejectionData, adminUser) => {
+  const { rejectionReason } = rejectionData;
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new AppError('Please provide a reason for rejecting the refund', 400);
+  }
+
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) throw new AppError('Order not found', 404);
+
+  if (order.refund_status === 'PROCESSED') {
+    throw new AppError('Cannot reject a refund that has already been processed', 400);
+  }
+
+  order.refund_status = 'REJECTED';
+  order.refund_rejection_reason = rejectionReason.trim();
+  order.payment_status = 'PAID'; // Funds retained
+  await order.save();
+
+  // Notify customer
+  if (order.customer_id) {
+    try {
+      const notificationService = require('../notification/notification.service');
+      notificationService.createNotification({
+        title: 'Refund Request Declined',
+        message: `Your refund request for Order #${order.order_number} could not be processed. Reason: ${rejectionReason.trim()}`,
+        type: 'REFUND',
+        action_url: '/orders/' + order.order_number,
+        target_role: 'customer',
+        target_user_id: order.customer_id,
+        metadata: { order_number: order.order_number, reason: rejectionReason.trim() }
+      });
+    } catch (e) {
+      console.error('Failed to notify customer of rejection:', e);
+    }
+  }
+
+  return { message: 'Refund rejected successfully', order };
 };
 
 const updateOrderTracking = async (orderId, trackingData, user) => {
@@ -632,5 +927,9 @@ module.exports = {
   getOrderById,
   verifyPayment,
   handlePaymentCallback,
-  handleRazorpayWebhook
+  handleRazorpayWebhook,
+  finalizePaidOrder,
+  getAdminRefunds,
+  processRefund,
+  rejectRefund
 };
