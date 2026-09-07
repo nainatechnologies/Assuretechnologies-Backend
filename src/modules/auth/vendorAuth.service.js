@@ -1,5 +1,5 @@
-const Vendor = require('../vendor/vendor.model');
 const { Op } = require('sequelize');
+const Vendor = require('../vendor/vendor.model');
 const crypto = require('crypto');
 const OtpModel = require('./otp.model');
 const { sendRegistrationOTP } = require('../../utils/smsGateway');
@@ -27,7 +27,7 @@ const login = async (mobile, email, password) => {
   }
 
   const token = generateToken({ id: user.id, role: 'vendor' });
-  
+
   const userData = user.toJSON();
   delete userData.password_hash;
 
@@ -39,22 +39,22 @@ const forgotPassword = async (mobile, email) => {
 
   const whereClause = mobile ? { mobile } : { email };
   const user = await Vendor.findOne({ where: whereClause });
-  
+
   if (!user) throw new AppError('Vendor not found', 404);
 
   const targetMobile = mobile || user.mobile;
   const generatedOtp = crypto.randomInt(100000, 1000000).toString();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-  
+
   // Invalidate any existing unused OTPs
   await OtpModel.destroy({ where: { mobile: targetMobile } });
-  
+
   await OtpModel.create({
     mobile: targetMobile,
     otp: generatedOtp,
     expires_at: expiresAt
   });
-  
+
   await sendRegistrationOTP(targetMobile, generatedOtp);
 
   return true;

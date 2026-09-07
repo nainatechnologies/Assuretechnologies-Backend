@@ -57,8 +57,12 @@ const adminLoginSchema = z.object({
 });
 
 const vendorLoginSchema = z.object({
-  email: emailValidation,
+  mobile: mobileValidation.optional(),
+  email: emailValidation.optional(),
   password: loginPasswordValidation,
+}).refine(data => data.mobile || data.email, {
+  message: 'Either mobile or email is required',
+  path: ['mobile']
 });
 
 const partnerLoginSchema = z.object({

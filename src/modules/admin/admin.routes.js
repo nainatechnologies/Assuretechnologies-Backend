@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('./admin.controller');
 const productController = require('../product/product.controller');
+const orderController = require('../order/order.controller');
 const authMiddleware = require('../../middleware/authMiddleware');
 
 // Apply auth middleware for all admin routes
@@ -37,6 +38,11 @@ router.get('/payments/transactions', adminController.getPaymentTransactions);
 router.get('/payments/pending-payouts', adminController.getPendingPayouts);
 router.get('/payments/vendor-ledger', adminController.getVendorLedger);
 router.post('/payments/payout', uploadPaymentProof.single('proof_image'), adminController.processVendorPayout);
+
+// Refunds
+router.get('/refunds', orderController.getAdminRefunds);
+router.post('/refunds/:orderId/process', orderController.processRefund);
+router.post('/refunds/:orderId/reject', orderController.rejectRefund);
 
 // Provider creation endpoints
 router.post('/vendors', uploadVendor.fields([{ name: 'aadhar_proof', maxCount: 1 }, { name: 'pan_proof', maxCount: 1 }, { name: 'shop_photo', maxCount: 1 }]), validateRequest(authSchemas.vendorRegisterSchema), adminController.createVendor);

@@ -58,9 +58,37 @@ const Order = sequelize.define('Order', {
     type: DataTypes.ENUM('NEW', 'ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED'),
     defaultValue: 'NEW'
   },
-  payment_status: {
-    type: DataTypes.ENUM('PENDING', 'PAID'),
+    payment_status: {
+    type: DataTypes.ENUM('PENDING', 'PAID', 'REFUND_PENDING', 'REFUNDED'),
     defaultValue: 'PENDING'
+  },
+  refund_id: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  refund_status: {
+    type: DataTypes.ENUM('NONE', 'REQUESTED', 'PROCESSING', 'PROCESSED', 'REJECTED', 'FAILED'),
+    defaultValue: 'NONE'
+  },
+  refund_amount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
+  },
+  refund_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  refund_rejection_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  refund_mode: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  refunded_at: {
+    type: DataTypes.DATE,
+    allowNull: true
   },
   transport_name: {
     type: DataTypes.STRING,
@@ -81,9 +109,21 @@ const Order = sequelize.define('Order', {
   razorpay_payment_id: {
     type: DataTypes.STRING,
     allowNull: true
-  },
-  razorpay_signature: {
+  },  razorpay_signature: {
     type: DataTypes.STRING,
+    allowNull: true
+  },
+  payment_method: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: 'ONLINE'
+  },
+  payment_details: {
+    type: DataTypes.JSON,
+    allowNull: true
+  },
+  paid_at: {
+    type: DataTypes.DATE,
     allowNull: true
   }
 }, {

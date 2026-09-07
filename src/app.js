@@ -62,6 +62,7 @@ const careerRoutes = require('./modules/career/career.routes');
 const serviceBookingRoutes = require('./modules/service/serviceBooking.routes');
 const partnerRoutes = require('./modules/partner/partner.routes');
 const notificationRoutes = require('./modules/notification/notification.routes');
+const quotationRoutes = require('./modules/quotation/quotation.routes');
 
 
 app.use('/api/auth', authRoutes);
@@ -77,6 +78,8 @@ app.use('/api/career', careerRoutes);
 app.use('/api', serviceBookingRoutes);
 app.use('/api', partnerRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin/quotations', quotationRoutes);
+app.use('/api/quotations', quotationRoutes);
 
 
 // Global Error Handler (must be the last middleware)
