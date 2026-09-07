@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bookingController = require('./serviceBooking.controller');
 const authMiddleware = require('../../middleware/authMiddleware');
+const Technician = require('../technician/technician.model');
+const Partner = require('../partner/partner.model');
 const { validateRequest, validateParams } = require('../../middleware/validate.middleware');
 const {
   createServiceBookingSchema,
@@ -183,6 +185,73 @@ router.patch(
   validateParams(updateBookingStatusParamSchema),
   validateRequest(partnerActionSchema),
   bookingController.handlePartnerAction
+);
+
+// ----------------------------------------------------
+// WORKER DUTY AVAILABILITY (ON / OFF) ROUTES
+// ----------------------------------------------------
+
+// Toggle duty status ON/OFF (Technician & Partner)
+router.patch(
+  '/duty-status',
+  authMiddleware(['technician', 'partner']),
+  async (req, res) => {
+    try {
+      const { id, role } = req.user;
+      const Model = role === 'technician' ? Technician : Partner;
+      const worker = await Model.findByPk(id);
+
+      if (!worker) {
+        return res.status(404).json({
+          success: false,
+          message: `${role === 'technician' ? 'Technician' : 'Partner'} not found`
+        });
+      }
+
+      const requestedStatus = req.body?.is_online;
+      const newStatus = typeof requestedStatus === 'boolean'
+        ? requestedStatus
+        : !worker.is_online;
+      worker.is_online = newStatus;
+      await worker.save();
+
+      return res.status(200).json({
+        success: true,
+        message: `Duty status turned ${worker.is_online ? 'ON' : 'OFF'} successfully`,
+        data: { is_online: worker.is_online }
+      });
+    } catch (error) {
+      console.error('Toggle duty status error:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to update duty status'
+      });
+    }
+  }
+);
+
+// Get current duty status (Technician & Partner)
+router.get(
+  '/duty-status',
+  authMiddleware(['technician', 'partner']),
+  async (req, res) => {
+    try {
+      const { id, role } = req.user;
+      const Model = role === 'technician' ? Technician : Partner;
+      const worker = await Model.findByPk(id, { attributes: ['id', 'is_online'] });
+
+      return res.status(200).json({
+        success: true,
+        data: { is_online: worker ? !!worker.is_online : false }
+      });
+    } catch (error) {
+      console.error('Get duty status error:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch duty status'
+      });
+    }
+  }
 );
 
 module.exports = router;

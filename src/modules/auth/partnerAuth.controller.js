@@ -2,9 +2,9 @@ const partnerAuthService = require('./partnerAuth.service');
 const asyncHandler = require('../../utils/asyncHandler');
 
 const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { mobile, email, password } = req.body;
   
-  const data = await partnerAuthService.login(email, password);
+  const data = await partnerAuthService.login(mobile, email, password);
 
   if (data.requiresPasswordChange) {
     return res.status(200).json({
@@ -39,4 +39,16 @@ const setPassword = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, message: 'Password updated and logged in', data: { user: data.user } });
 });
 
-module.exports = { login, setPassword };
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { mobile, email } = req.body;
+  await partnerAuthService.forgotPassword(mobile, email);
+  res.status(200).json({ success: true, message: 'OTP sent successfully. Please check your phone/email.' });
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  const { mobile, email, otp, newPassword } = req.body;
+  await partnerAuthService.resetPassword(mobile, email, otp, newPassword);
+  res.status(200).json({ success: true, message: 'Password reset successfully' });
+});
+
+module.exports = { login, setPassword, forgotPassword, resetPassword };

@@ -1,5 +1,6 @@
-const { Invoice, InvoiceItem, Order, OrderItem, Vendor, Product, Customer } = require('../../models');
+const { Invoice, InvoiceItem, Order, OrderItem, Vendor, Product, Customer, ServiceBooking, Service, ExtraItemsRequest } = require('../../models');
 const AppError = require('../../utils/AppError');
+const { buildInvoicePdf } = require('../../utils/pdfGenerator');
 
 const createVendorInvoice = async (vendor_id, orderId, items) => {
   const order = await Order.findOne({
@@ -91,8 +92,211 @@ const deleteAdminInvoice = async (id) => {
   await invoice.destroy();
 };
 
+const createServiceInvoice = async (invoiceData) => {
+  const { srNo, customerName, mobile, email, address, items, additionalChargesDesc, additionalCharges, gstPercent, grandTotal, serviceName } = invoiceData;
+
+  // Validate base service payload against DB truth
+  if (items && items.length > 0) {
+    const booking = await ServiceBooking.findOne({
+      where: { auto_id: parseInt(srNo.split('-')[1]) - 1000 },
+      include: [
+        { model: Service },
+        { model: Order }
+      ]
+    });
+
+    if (booking) {
+      const trueQty = booking.quantity ? parseFloat(booking.quantity) : 1;
+      const trueRate = parseFloat(booking.Order && booking.Order.subtotal_amount) || (booking.Service ? parseFloat(booking.Service.prebooking_charge) : 0) || 0;
+      
+      const payloadQty = parseFloat(items[0].qty) || 0;
+      const payloadRate = parseFloat(items[0].rate) || 0;
+
+      if (payloadQty !== trueQty || payloadRate !== trueRate) {
+        throw new AppError('Base service quantity and rate cannot be modified.', 400);
+      }
+    }
+  }
+
+  const invoice_number = 'INV' + Date.now() + Math.floor(Math.random() * 1000);
+
+  const invoice = await Invoice.create({
+    invoice_number,
+    order_id: srNo, // We map the booking's display_id (e.g. BKG-1025) to order_id
+    customer_name: customerName || 'N/A',
+    mobile: mobile || 'N/A',
+    email: email || '',
+    address: address || '',
+    additional_charges_desc: additionalChargesDesc || '',
+    additional_charges: additionalCharges || 0,
+    gst_percent: gstPercent || 18,
+    grand_total: grandTotal,
+    status: 'Paid',
+    type: 'SERVICE'
+  });
+
+  if (items && items.length > 0) {
+    for (const item of items) {
+      await InvoiceItem.create({
+        invoice_id: invoice.id,
+        description: item.description || serviceName || 'Service',
+        qty: item.qty || 1,
+        rate: item.rate || 0,
+        amount: item.amount || 0,
+        warranty: item.warranty || '',
+        model_number: item.modelNumber || '',
+        hsn_code: item.hsnCode || '',
+        serial_numbers: Array.isArray(item.serialNumbers) ? JSON.stringify(item.serialNumbers) : (item.serialNumbers || '[]')
+      });
+    }
+  }
+
+  return invoice;
+};
+
+const getPendingServiceBookings = async () => {
+  // Find all COMPLETED bookings
+  const bookings = await ServiceBooking.findAll({
+    where: { status: 'COMPLETED' },
+    include: [
+      { 
+        model: Service, 
+        include: [{ model: require('../../models').Category, as: 'category' }] 
+      },
+      { model: Order, include: [{ model: Customer, as: 'customer' }] },
+      { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
+    ],
+    order: [['createdAt', 'DESC']]
+  });
+
+  // Filter out the ones that already have an invoice
+  // Since order_id in Invoice maps to display_id of booking
+  const displayIds = bookings.map(b => b.display_id);
+  const existingInvoices = await Invoice.findAll({
+    where: { order_id: displayIds, type: 'SERVICE' },
+    attributes: ['order_id']
+  });
+  
+  const existingInvoiceIds = existingInvoices.map(i => i.order_id);
+  
+  const pending = bookings.filter(b => !existingInvoiceIds.includes(b.display_id));
+
+  // Map to the format the admin frontend expects (mockSRs format)
+  return pending.map(b => {
+    const customer = b.Order && b.Order.customer ? b.Order.customer : {};
+    return {
+      id: b.id,
+      srNo: b.display_id,
+      customerName: customer.full_name || (b.Order && b.Order.customer_name) || 'N/A',
+      mobile: customer.mobile || (b.Order && b.Order.customer_contact) || 'N/A',
+      email: customer.email || '',
+      address: (() => {
+        let addr = b.address;
+        if (typeof addr === 'string' && addr.trim().startsWith('{')) {
+          try { addr = JSON.parse(addr); } catch (e) {}
+        }
+        if (typeof addr === 'object' && addr !== null) {
+          return [addr.line1, addr.line2, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ');
+        }
+        return addr || '';
+      })(),
+      service: b.Service ? b.Service.name : 'Custom Service',
+      category: (b.Service && b.Service.category) ? b.Service.category.name : 'Service',
+      qty: b.quantity ? parseFloat(b.quantity) : 1,
+      rate: parseFloat(b.Order && b.Order.subtotal_amount) || (b.Service ? parseFloat(b.Service.prebooking_charge) : 0) || 0,
+      completedOn: b.updatedAt.toDateString(),
+      extraItems: b.extra_items ? b.extra_items.map((extra) => ({
+        description: extra.description,
+        qty: extra.qty
+      })) : []
+    };
+  });
+};
+
+const generateServiceInvoicePdf = async (bookingId, res) => {
+  let booking = await ServiceBooking.findOne({
+    where: { auto_id: bookingId }, // user passes BKG-1025
+    include: [
+      { model: Service },
+      { model: Order, include: [{ model: Customer, as: 'customer' }] },
+      { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
+    ]
+  });
+
+  if (!booking) {
+    // Fallback to internal UUID if display_id fails
+    const bookingByUuid = await ServiceBooking.findByPk(bookingId, {
+      include: [
+        { model: Service },
+        { model: Order, include: [{ model: Customer, as: 'customer' }] },
+        { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
+      ]
+    });
+    if (!bookingByUuid) throw new AppError('Service Booking not found', 404);
+    booking = bookingByUuid;
+  }
+
+  // Instead of dynamically generating the PDF, we fetch the saved invoice
+  const displayId = `BKG-${booking.auto_id + 1000}`;
+  const savedInvoice = await Invoice.findOne({
+    where: { order_id: displayId, type: 'SERVICE' },
+    include: [{ model: InvoiceItem, as: 'items' }]
+  });
+
+  if (!savedInvoice) {
+    throw new AppError('Invoice not generated by Admin yet', 404);
+  }
+
+  // Format data for buildInvoicePdf
+  const invoiceData = {
+     invoice_number: savedInvoice.invoice_number,
+     customer: {
+       name: savedInvoice.customer_name,
+       mobile: savedInvoice.mobile,
+       address: savedInvoice.address || 'Address not provided'
+     },
+     items: savedInvoice.items.map(item => ({
+       item_type: 'Item',
+       description: item.description,
+       price: parseFloat(item.rate),
+       qty: item.qty
+     })),
+     total_amount: parseFloat(savedInvoice.grand_total)
+  };
+
+  // Add additional charges / GST to display if they exist
+  if (parseFloat(savedInvoice.additional_charges) > 0) {
+    invoiceData.items.push({
+      item_type: 'Additional Charges',
+      description: savedInvoice.additional_charges_desc || 'Extra Fees',
+      price: parseFloat(savedInvoice.additional_charges),
+      qty: 1
+    });
+  }
+
+  const subtotal = invoiceData.items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+  const gstAmount = parseFloat(savedInvoice.grand_total) - subtotal;
+  
+  if (gstAmount > 0) {
+    invoiceData.items.push({
+      item_type: 'Tax',
+      description: `GST (${parseFloat(savedInvoice.gst_percent)}%)`,
+      price: gstAmount,
+      qty: 1
+    });
+  }
+
+  buildInvoicePdf(invoiceData,
+    chunk => res.write(chunk),
+    () => res.end()
+  );
+};
+
 module.exports = {
   deleteAdminInvoice,
   createVendorInvoice,
-  getAdminInvoices
+  getAdminInvoices,
+  generateServiceInvoicePdf,
+  createServiceInvoice,
+  getPendingServiceBookings
 };

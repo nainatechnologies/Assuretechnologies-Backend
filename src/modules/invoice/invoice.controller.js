@@ -25,8 +25,32 @@ const deleteAdminInvoice = async (req, res) => {
   }
 };
 
+const downloadServiceInvoice = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  
+  // Set headers to trigger a download
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', "attachment; filename=Invoice-$bookingId.pdf");
+
+  // Stream the PDF back directly
+  await invoiceService.generateServiceInvoicePdf(bookingId, res);
+});
+
+const createServiceInvoice = asyncHandler(async (req, res) => {
+  const invoice = await invoiceService.createServiceInvoice(req.body);
+  res.status(201).json({ success: true, message: 'Invoice generated successfully', data: { invoice } });
+});
+
+const getPendingServiceBookings = asyncHandler(async (req, res) => {
+  const pendingBookings = await invoiceService.getPendingServiceBookings();
+  res.status(200).json({ success: true, data: pendingBookings });
+});
+
 module.exports = {
-  deleteAdminInvoice,
   createVendorInvoice,
-  getAdminInvoices
+  getAdminInvoices,
+  deleteAdminInvoice,
+  downloadServiceInvoice,
+  createServiceInvoice,
+  getPendingServiceBookings
 };

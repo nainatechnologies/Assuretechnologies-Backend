@@ -55,6 +55,11 @@ const Technician = sequelize.define('Technician', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  is_online: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
   force_password_change: {
     type: DataTypes.BOOLEAN,
     defaultValue: true,

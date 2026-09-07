@@ -8,8 +8,8 @@ const getVendors = asyncHandler(async (req, res) => {
 });
 
 const getTechnicians = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, search = '' } = req.query;
-  const result = await adminService.getTechnicians(Number(page), Number(limit), search);
+  const { page = 1, limit = 10, search = '', available_only, is_online } = req.query;
+  const result = await adminService.getTechnicians(Number(page), Number(limit), search, { available_only, is_online });
   res.status(200).json({ success: true, data: result.data, pagination: result.pagination });
 });
 

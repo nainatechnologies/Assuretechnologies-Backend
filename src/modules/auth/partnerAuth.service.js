@@ -1,14 +1,19 @@
 const Partner = require('../partner/partner.model');
+const { Op } = require('sequelize');
+const crypto = require('crypto');
+const OtpModel = require('./otp.model');
+const { sendRegistrationOTP } = require('../../utils/smsGateway');
 const { comparePassword, hashPassword } = require('../../utils/hash');
 const { generateToken } = require('../../utils/jwt');
 const AppError = require('../../utils/AppError');
 
-const login = async (email, password) => {
-  if (!email || !password) {
-    throw new AppError('Email and password are required', 400);
+const login = async (mobile, email, password) => {
+  if ((!mobile && !email) || !password) {
+    throw new AppError('Mobile/email and password are required', 400);
   }
 
-  const user = await Partner.findOne({ where: { email } });
+  const whereClause = mobile ? { mobile } : { email };
+  const user = await Partner.findOne({ where: whereClause });
   if (!user) {
     throw new AppError('Invalid credentials', 401);
   }
@@ -59,4 +64,58 @@ const setPassword = async (email, old_password, new_password) => {
   return { user: userData, token };
 };
 
-module.exports = { login, setPassword };
+const forgotPassword = async (mobile, email) => {
+  if (!mobile && !email) throw new AppError('Mobile or email is required', 400);
+
+  const whereClause = mobile ? { mobile } : { email };
+  const user = await Partner.findOne({ where: whereClause });
+  
+  if (!user) throw new AppError('Partner not found', 404);
+
+  const targetMobile = mobile || user.mobile;
+  const generatedOtp = crypto.randomInt(100000, 1000000).toString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  
+  // Invalidate any existing unused OTPs
+  await OtpModel.destroy({ where: { mobile: targetMobile } });
+  
+  await OtpModel.create({
+    mobile: targetMobile,
+    otp: generatedOtp,
+    expires_at: expiresAt
+  });
+  
+  await sendRegistrationOTP(targetMobile, generatedOtp);
+
+  return true;
+};
+
+const resetPassword = async (mobile, email, otp, newPassword) => {
+  if ((!mobile && !email) || !otp || !newPassword) throw new AppError('Missing required fields', 400);
+
+  const whereClause = mobile ? { mobile } : { email };
+  const user = await Partner.findOne({ where: whereClause });
+  if (!user) throw new AppError('Partner not found', 404);
+
+  const otpRecord = await OtpModel.findOne({
+    where: {
+      mobile: user.mobile,
+      otp,
+      expires_at: {
+        [Op.gt]: new Date()
+      }
+    }
+  });
+
+  if (!otpRecord) throw new AppError('Invalid or expired OTP', 400);
+  await otpRecord.destroy();
+
+  const password_hash = await hashPassword(newPassword);
+  user.password_hash = password_hash;
+  user.force_password_change = false;
+  await user.save();
+
+  return true;
+};
+
+module.exports = { login, setPassword, forgotPassword, resetPassword };
