@@ -26,53 +26,93 @@ const otpLimiter = rateLimit({
 // Admin Auth
 router.post('/admin/login', validateRequest(authSchemas.adminLoginSchema), adminAuth.login);
 
-// Global & Role-Specific Logout Handler
+// Portal-Isolated Logout Handler
 const handleLogout = async (req, res) => {
-  try {
-    let token = null;
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.split(' ')[1];
-    } else {
-      token = req.cookies?.technician_token || req.cookies?.partner_token || req.cookies?.token;
-    }
-
-    if (token) {
-      try {
-        const decoded = verifyToken(token);
-        if (decoded && decoded.id) {
-          if (decoded.role === 'technician') {
-            await Technician.update({ is_online: false }, { where: { id: decoded.id } });
-          } else if (decoded.role === 'partner') {
-            await Partner.update({ is_online: false }, { where: { id: decoded.id } });
-          }
-        }
-      } catch (tokenErr) {
-        // Token invalid or expired, ignore and proceed
-      }
-    }
-  } catch (err) {
-    console.error('Auto-offline on logout error:', err);
-  }
-
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/'
   };
-  res.clearCookie('token', cookieOptions);
-  res.clearCookie('admin_token', cookieOptions);
-  res.clearCookie('customer_token', cookieOptions);
-  res.clearCookie('vendor_token', cookieOptions);
-  res.clearCookie('technician_token', cookieOptions);
-  res.clearCookie('partner_token', cookieOptions);
-  res.status(200).json({ success: true, message: 'Logged out successfully' });
+
+  const roleCookieMap = {
+    admin: 'admin_token',
+    customer: 'customer_token',
+    vendor: 'vendor_token',
+    technician: 'technician_token',
+    partner: 'partner_token'
+  };
+
+  let token = null;
+  let detectedRole = req.params?.portal || req.body?.role || req.query?.role || null;
+
+  // 1. Extract Bearer Token from Authorization Header
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+
+  // 2. If no Bearer token, check cookies
+  if (!token) {
+    if (detectedRole && roleCookieMap[detectedRole]) {
+      token = req.cookies?.[roleCookieMap[detectedRole]];
+    } else {
+      for (const [r, cookieName] of Object.entries(roleCookieMap)) {
+        if (req.cookies?.[cookieName]) {
+          token = req.cookies[cookieName];
+          detectedRole = r;
+          break;
+        }
+      }
+      if (!token && req.cookies?.token) {
+        token = req.cookies.token;
+      }
+    }
+  }
+
+  // 3. Decode Token to verify user identity & role
+  if (token) {
+    try {
+      const decoded = verifyToken(token);
+      if (decoded && decoded.role) {
+        detectedRole = decoded.role;
+      }
+      if (decoded && decoded.id) {
+        if (decoded.role === 'technician') {
+          await Technician.update({ is_online: false }, { where: { id: decoded.id } });
+        } else if (decoded.role === 'partner') {
+          await Partner.update({ is_online: false }, { where: { id: decoded.id } });
+        }
+      }
+    } catch (tokenErr) {
+      // Token invalid or expired, proceed with logout
+    }
+  }
+
+  // 4. Role-isolated cookie clearing
+  if (detectedRole && roleCookieMap[detectedRole]) {
+    res.clearCookie(roleCookieMap[detectedRole], cookieOptions);
+    res.clearCookie('token', cookieOptions);
+  } else {
+    // Fallback: if no specific role could be detected, clear all
+    Object.values(roleCookieMap).forEach(cName => res.clearCookie(cName, cookieOptions));
+    res.clearCookie('token', cookieOptions);
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: detectedRole
+      ? `${detectedRole.charAt(0).toUpperCase() + detectedRole.slice(1)} logged out successfully`
+      : 'Logged out successfully'
+  });
 };
 
+// Global & Role-Specific Logout Routes
 router.post('/logout', handleLogout);
-router.post('/vendor/logout', handleLogout);
-router.post('/admin/logout', handleLogout);
-router.post('/customer/logout', handleLogout);
+router.post('/admin/logout', (req, res, next) => { req.params.portal = 'admin'; handleLogout(req, res, next); });
+router.post('/customer/logout', (req, res, next) => { req.params.portal = 'customer'; handleLogout(req, res, next); });
+router.post('/vendor/logout', (req, res, next) => { req.params.portal = 'vendor'; handleLogout(req, res, next); });
+router.post('/technician/logout', (req, res, next) => { req.params.portal = 'technician'; handleLogout(req, res, next); });
+router.post('/partner/logout', (req, res, next) => { req.params.portal = 'partner'; handleLogout(req, res, next); });
 
 // Customer Auth
 router.post('/customer/register', otpLimiter, validateRequest(authSchemas.customerRegisterSchema), customerAuth.register);
