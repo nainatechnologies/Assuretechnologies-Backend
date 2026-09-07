@@ -11,7 +11,7 @@ const productSchemas = require('./product.validation');
 router.get('/', productController.getProducts);
 
 // Get a single product
-
+router.get('/:id', productController.getProductById);
 
 // Create a product (admin or vendor)
 router.post('/', authMiddleware(['admin', 'vendor']), upload.single('banner'), validateRequest(productSchemas.createProductSchema), productController.createProduct);

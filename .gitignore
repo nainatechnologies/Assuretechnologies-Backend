@@ -33,3 +33,5 @@ node_modules/
 
 # Custom DB Scripts
 scripts/
+
+.agents/

@@ -378,7 +378,7 @@ const getOrders = async (user, query = {}) => {
   return orders;
 };
 
-const getOrderById = async (orderId) => {
+const getOrderById = async (orderId, user = null) => {
   const order = await Order.findOne({
     where: { order_number: orderId },
     include: [
@@ -408,6 +408,22 @@ const getOrderById = async (orderId) => {
 
   if (!order) {
     throw new AppError('Order not found', 404);
+  }
+
+  if (user) {
+    if (user.role === 'customer' && order.customer_id !== user.id) {
+      throw new AppError('Not authorized to view this order', 403);
+    }
+
+    if (user.role === 'vendor') {
+      const vendorItems = (order.items || []).filter(item => item.vendor_id === user.id);
+      if (vendorItems.length === 0) {
+        throw new AppError('Not authorized to view this order', 403);
+      }
+      const orderJson = order.toJSON ? order.toJSON() : JSON.parse(JSON.stringify(order));
+      orderJson.items = vendorItems.map(item => item.toJSON ? item.toJSON() : item);
+      return orderJson;
+    }
   }
 
   return order;
@@ -458,9 +474,30 @@ const splitOrderItem = async (orderId, itemId, splitData) => {
   return { message: 'Order item split successfully', originalItem: item, newItem };
 };
 
-const updateOrderStatus = async (orderId, updateData) => {
-  const order = await Order.findOne({ where: { order_number: orderId } });
+const updateOrderStatus = async (orderId, updateData, user = null) => {
+  const order = await Order.findOne({ 
+    where: { order_number: orderId },
+    include: [{ model: OrderItem, as: 'items' }]
+  });
   if (!order) { throw new AppError('Order not found', 404); }
+
+  if (user) {
+    if (user.role === 'vendor') {
+      if (updateData.payment_status && updateData.payment_status !== order.payment_status) {
+        throw new AppError('Vendors are not authorized to modify payment status', 403);
+      }
+      const vendorItems = (order.items || []).filter(item => item.vendor_id === user.id);
+      if (vendorItems.length === 0) {
+        throw new AppError('Not authorized to update this order', 403);
+      }
+      const allowedVendorStatuses = ['ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED'];
+      if (updateData.status && !allowedVendorStatuses.includes(updateData.status)) {
+        throw new AppError(`Invalid status update. Allowed: ${allowedVendorStatuses.join(', ')}`, 400);
+      }
+    } else if (user.role !== 'admin') {
+      throw new AppError('Not authorized to update order status', 403);
+    }
+  }
 
   if (updateData.payment_status) {
     order.payment_status = updateData.payment_status;
@@ -910,6 +947,74 @@ const handleRazorpayWebhook = async (rawBody, signature) => {
         }
 
         return { success: true, message: `Order ${orderNumber} successfully marked as PAID via Webhook` };
+      }
+    }
+  }
+
+    // 2. Process refund.processed event
+  if (event.event === 'refund.processed') {
+    const refundEntity = event.payload?.refund?.entity;
+    const paymentEntity = event.payload?.payment?.entity;
+    const orderNumber = refundEntity?.notes?.order_number || paymentEntity?.notes?.order_number;
+
+    if (orderNumber) {
+      const order = await Order.findOne({ where: { order_number: orderNumber } });
+      if (order && order.refund_status !== 'PROCESSED') {
+        order.payment_status = 'REFUNDED';
+        order.refund_status = 'PROCESSED';
+        if (refundEntity?.id) order.refund_id = refundEntity.id;
+        if (refundEntity?.amount) order.refund_amount = refundEntity.amount / 100;
+        order.refund_mode = 'GATEWAY';
+        order.refunded_at = new Date();
+        await order.save();
+
+        if (order.customer_id) {
+          try {
+            const notificationService = require('../notification/notification.service');
+            notificationService.createNotification({
+              title: 'Refund Processed',
+              message: `Your refund of ₹${parseFloat(order.refund_amount || 0).toFixed(2)} for Order #${order.order_number} has been settled to your account via Razorpay.`,
+              type: 'REFUND',
+              action_url: '/orders/' + order.order_number,
+              target_role: 'customer',
+              target_user_id: order.customer_id,
+              metadata: { order_number: order.order_number, refund_id: order.refund_id }
+            });
+          } catch (e) {
+            console.error('Failed to dispatch refund.processed notification:', e);
+          }
+        }
+        return { success: true, message: `Order ${orderNumber} refund marked as PROCESSED via Webhook` };
+      }
+    }
+  }
+
+  // 3. Process refund.failed event
+  if (event.event === 'refund.failed') {
+    const refundEntity = event.payload?.refund?.entity;
+    const orderNumber = refundEntity?.notes?.order_number;
+
+    if (orderNumber) {
+      const order = await Order.findOne({ where: { order_number: orderNumber } });
+      if (order) {
+        order.refund_status = 'FAILED';
+        order.refund_rejection_reason = `Gateway refund failed: ${refundEntity?.error_description || 'Bank decline'}. Please settle manually.`;
+        await order.save();
+
+        try {
+          const notificationService = require('../notification/notification.service');
+          notificationService.createNotification({
+            title: 'Refund Gateway Failed',
+            message: `Razorpay refund failed for Order #${order.order_number} (${refundEntity?.error_description || 'Bank error'}). Manual transfer required.`,
+            type: 'REFUND',
+            action_url: '/admin/payments?tab=refunds',
+            target_role: 'admin',
+            metadata: { order_number: order.order_number }
+          });
+        } catch (e) {
+          console.error('Failed to notify admin of refund failure:', e);
+        }
+        return { success: true, message: `Order ${orderNumber} refund failure recorded via Webhook` };
       }
     }
   }

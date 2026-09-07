@@ -19,6 +19,11 @@ exports.getProducts = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+exports.getProductById = asyncHandler(async (req, res) => {
+  const product = await productService.getProductById(req.params.id);
+  res.status(200).json(product);
+});
+
 exports.createProduct = asyncHandler(async (req, res) => {
   const product = await productService.createProduct(req.body, req.user, req.file);
   res.status(201).json(product);
@@ -33,4 +38,3 @@ exports.deleteProduct = asyncHandler(async (req, res) => {
   const result = await productService.deleteProduct(req.params.id, req.user);
   res.status(200).json(result);
 });
-

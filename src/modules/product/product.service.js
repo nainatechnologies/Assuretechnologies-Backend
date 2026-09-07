@@ -2,6 +2,28 @@ const { Product, Vendor } = require('../../models');
 const { Op } = require('sequelize');
 const AppError = require('../../utils/AppError');
 
+const formatSingleProduct = (p) => {
+  const product = p.toJSON ? p.toJSON() : p;
+  const base = parseFloat(product.base_price) || 0;
+  const disc = parseFloat(product.discount) || 0;
+  const finalPrice = base - (base * (disc / 100));
+
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+  const image = product.banner
+    ? (product.banner.startsWith('http') || product.banner.startsWith('blob:')
+        ? product.banner
+        : `${backendUrl}${product.banner.startsWith('/') ? '' : '/'}${product.banner}`)
+    : 'https://placehold.co/300x200?text=No+Image';
+
+  return {
+    ...product,
+    originalPrice: base,
+    price: finalPrice,
+    service: product.category || 'General',
+    image
+  };
+};
+
 const getProducts = async (filters, pagination, user) => {
   const { search, category, stockStatus, sort } = filters;
   const { page, limit } = pagination;
@@ -55,20 +77,7 @@ const getProducts = async (filters, pagination, user) => {
     offset
   });
 
-  const formattedProducts = products.map(p => {
-    const product = p.toJSON ? p.toJSON() : p;
-    const base = parseFloat(product.base_price) || 0;
-    const disc = parseFloat(product.discount) || 0;
-    const finalPrice = base - (base * (disc / 100));
-
-    return {
-      ...product,
-      originalPrice: base,
-      price: finalPrice,
-      service: product.category || 'General',
-      image: product.banner ? (product.banner.startsWith('http') || product.banner.startsWith('blob:') ? product.banner : `http://localhost:5000${product.banner.startsWith('/') ? '' : '/'}${product.banner}`) : 'https://placehold.co/300x200?text=No+Image'
-    };
-  });
+  const formattedProducts = products.map(formatSingleProduct);
 
   return {
     data: formattedProducts,
@@ -81,12 +90,44 @@ const getProducts = async (filters, pagination, user) => {
   };
 };
 
+const getProductById = async (id) => {
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  
+  let product;
+  if (isUUID) {
+    product = await Product.findByPk(id, {
+      include: [{ model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }]
+    });
+  } else {
+    // Check by display_id format (e.g. PROD-1001) or auto_id
+    const numericPart = id.replace(/^PROD-/i, '');
+    const autoId = parseInt(numericPart, 10) - (id.toUpperCase().startsWith('PROD-') ? 1000 : 0);
+    
+    product = await Product.findOne({
+      where: {
+        [Op.or]: [
+          { id },
+          ...(isNaN(autoId) ? [] : [{ auto_id: autoId }])
+        ]
+      },
+      include: [{ model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }]
+    });
+  }
+
+  if (!product) {
+    throw new AppError('Product not found', 404);
+  }
+
+  return formatSingleProduct(product);
+};
+
 const createProduct = async (productData, user, file) => {
-  const { name, category, base_price, discount, stock, description, status, admin_commission } = productData;
+  const { name, category, discount, stock, description, admin_commission } = productData;
+  const base_price = productData.base_price !== undefined ? productData.base_price : productData.price;
   
   let banner = productData.banner || '';
   if (file) {
-    banner = `/uploads/products/${file.filename}`;
+    banner = file.path || `/uploads/products/${file.filename}`;
   }
 
   let vendor_id = null;
@@ -96,6 +137,10 @@ const createProduct = async (productData, user, file) => {
     vendor_id = user.id;
     final_admin_commission = admin_commission || 0;
   }
+
+  let finalStatus = productData.status || 'In Stock';
+  if (finalStatus === 'Active') finalStatus = 'In Stock';
+  if (finalStatus === 'Inactive') finalStatus = 'Out of Stock';
   
   const product = await Product.create({
     vendor_id,
@@ -104,10 +149,10 @@ const createProduct = async (productData, user, file) => {
     base_price,
     discount: discount || 0,
     admin_commission: final_admin_commission,
-    stock,
+    stock: stock || 0,
     banner,
-    description,
-    status: status || 'In Stock'
+    description: description || '',
+    status: finalStatus
   });
   
   return product;
@@ -115,7 +160,7 @@ const createProduct = async (productData, user, file) => {
 
 const updateProduct = async (id, updateData, user, file) => {
   if (file) {
-    updateData.banner = `/uploads/products/${file.filename}`;
+    updateData.banner = file.path || `/uploads/products/${file.filename}`;
   }
 
   const whereClause = { id };
@@ -131,6 +176,12 @@ const updateProduct = async (id, updateData, user, file) => {
   if (user && user.role === 'vendor') {
     delete updateData.vendor_id;
   }
+
+  if (updateData.price !== undefined && updateData.base_price === undefined) {
+    updateData.base_price = updateData.price;
+  }
+  if (updateData.status === 'Active') updateData.status = 'In Stock';
+  if (updateData.status === 'Inactive') updateData.status = 'Out of Stock';
 
   await product.update(updateData);
   return product;
@@ -153,8 +204,8 @@ const deleteProduct = async (id, user) => {
 
 module.exports = {
   getProducts,
+  getProductById,
   createProduct,
   updateProduct,
   deleteProduct
 };
-

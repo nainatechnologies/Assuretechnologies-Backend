@@ -14,8 +14,8 @@ const customerSchemas = require('../customer/customer.validation');
 // Admin Auth
 router.post('/admin/login', validateRequest(authSchemas.adminLoginSchema), adminAuth.login);
 
-// Global Logout
-router.post('/logout', (req, res) => {
+// Global & Role-Specific Logout Handlers
+const handleLogout = (req, res) => {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -29,7 +29,12 @@ router.post('/logout', (req, res) => {
   res.clearCookie('technician_token', cookieOptions);
   res.clearCookie('partner_token', cookieOptions);
   res.status(200).json({ success: true, message: 'Logged out successfully' });
-});
+};
+
+router.post('/logout', handleLogout);
+router.post('/vendor/logout', handleLogout);
+router.post('/admin/logout', handleLogout);
+router.post('/customer/logout', handleLogout);
 
 // Customer Auth
 router.post('/customer/register', validateRequest(authSchemas.customerRegisterSchema), customerAuth.register);

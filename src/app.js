@@ -79,7 +79,6 @@ app.use('/api', serviceBookingRoutes);
 app.use('/api', partnerRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin/quotations', quotationRoutes);
-app.use('/api/quotations', quotationRoutes);
 
 
 // Global Error Handler (must be the last middleware)

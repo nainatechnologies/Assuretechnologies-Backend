@@ -36,13 +36,13 @@ exports.splitOrderItem = asyncHandler(async (req, res) => {
 
 exports.getOrderById = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
-  const order = await orderService.getOrderById(orderId);
+  const order = await orderService.getOrderById(orderId, req.user);
   res.status(200).json(order);
 });
 
 exports.updateOrderStatus = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
-  const result = await orderService.updateOrderStatus(orderId, req.body);
+  const result = await orderService.updateOrderStatus(orderId, req.body, req.user);
   res.status(200).json(result);
 });
 
