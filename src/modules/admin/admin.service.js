@@ -45,7 +45,7 @@ const getVendors = async (page = 1, limit = 10, search = '') => {
   };
 };
 
-const getTechnicians = async (page = 1, limit = 10, search = '') => {
+const getTechnicians = async (page = 1, limit = 10, search = '', filters = {}) => {
   const offset = (page - 1) * limit;
   const whereClause = {};
   if (search) {
@@ -56,6 +56,11 @@ const getTechnicians = async (page = 1, limit = 10, search = '') => {
       Sequelize.where(Sequelize.cast(Sequelize.col('service_pincodes'), 'CHAR'), { [Op.like]: '%' + search + '%' }),
       Sequelize.where(Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'), { [Op.like]: '%' + search + '%' })
     ];
+  }
+
+  if (filters.available_only === 'true' || filters.available_only === true || filters.is_online === 'true' || filters.is_online === true) {
+    whereClause.is_active = true;
+    whereClause.is_online = true;
   }
 
   const { count, rows } = await Technician.findAndCountAll({

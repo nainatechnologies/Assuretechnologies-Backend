@@ -1,6 +1,10 @@
 const { sequelize } = require('../../config/database');
+const { Op } = require('sequelize');
+const crypto = require('crypto');
 const Customer = require('../customer/customer.model');
 const CustomerAddress = require('../customer/customerAddress.model');
+const OtpModel = require('./otp.model');
+const { sendRegistrationOTP } = require('../../utils/smsGateway');
 const { hashPassword, comparePassword } = require('../../utils/hash');
 const { generateToken } = require('../../utils/jwt');
 const AppError = require('../../utils/AppError');
@@ -52,13 +56,42 @@ const register = async (data) => {
     });
   }
 
+  // Generate and save OTP
+  const generatedOtp = crypto.randomInt(100000, 1000000).toString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  
+  // Invalidate any existing unused OTPs
+  await OtpModel.destroy({ where: { mobile } });
+  
+  await OtpModel.create({
+    mobile,
+    otp: generatedOtp,
+    expires_at: expiresAt
+  });
+  
+  // Send SMS
+  await sendRegistrationOTP(mobile, generatedOtp);
+
   return { customerId: customer.id };
 };
 
 const verifyOtp = async (mobile, otp) => {
-  if (otp !== '123456') {
-    throw new AppError('Invalid OTP', 400);
+  const otpRecord = await OtpModel.findOne({
+    where: {
+      mobile,
+      otp,
+      expires_at: {
+        [Op.gt]: new Date()
+      }
+    }
+  });
+
+  if (!otpRecord) {
+    throw new AppError('Invalid or Expired OTP', 400);
   }
+
+  // OTP verified, destroy it
+  await otpRecord.destroy();
 
   const customer = await Customer.findOne({ where: { mobile } });
   if (!customer) {
@@ -105,27 +138,43 @@ const forgotPassword = async (mobile, email) => {
   
   if (!customer) throw new AppError('Customer not found', 404);
 
-  return true;
-};
-
-const verifyResetOtp = async (mobile, email, otp) => {
-  if ((!mobile && !email) || !otp) throw new AppError('Mobile/email and OTP are required', 400);
-  if (otp !== '123456') throw new AppError('Invalid OTP', 400);
-
-  const whereClause = mobile ? { mobile } : { email };
-  const customer = await Customer.findOne({ where: whereClause });
-  if (!customer) throw new AppError('Customer not found', 404);
+  const targetMobile = mobile || customer.mobile;
+  const generatedOtp = crypto.randomInt(100000, 1000000).toString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  
+  // Invalidate any existing unused OTPs
+  await OtpModel.destroy({ where: { mobile: targetMobile } });
+  
+  await OtpModel.create({
+    mobile: targetMobile,
+    otp: generatedOtp,
+    expires_at: expiresAt
+  });
+  
+  await sendRegistrationOTP(targetMobile, generatedOtp);
 
   return true;
 };
 
 const resetPassword = async (mobile, email, otp, newPassword) => {
   if ((!mobile && !email) || !otp || !newPassword) throw new AppError('Missing required fields', 400);
-  if (otp !== '123456') throw new AppError('Invalid or expired OTP', 400);
 
   const whereClause = mobile ? { mobile } : { email };
   const customer = await Customer.findOne({ where: whereClause });
   if (!customer) throw new AppError('Customer not found', 404);
+
+  const otpRecord = await OtpModel.findOne({
+    where: {
+      mobile: customer.mobile,
+      otp,
+      expires_at: {
+        [Op.gt]: new Date()
+      }
+    }
+  });
+
+  if (!otpRecord) throw new AppError('Invalid or expired OTP', 400);
+  await otpRecord.destroy();
 
   const password_hash = await hashPassword(newPassword);
   customer.password_hash = password_hash;
@@ -307,5 +356,5 @@ const setDefaultAddress = async (customer_id, address_id) => {
 };
 
 module.exports = {
-  register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword, getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress
+  register, verifyOtp, login, forgotPassword, resetPassword, getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress
 };

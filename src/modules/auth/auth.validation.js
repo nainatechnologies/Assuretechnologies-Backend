@@ -75,30 +75,13 @@ const partnerLoginSchema = z.object({
 });
 
 const forgotPasswordSchema = z.object({
-  mobile: mobileValidation.optional(),
-  email: emailValidation.optional(),
-}).refine(data => data.mobile || data.email, {
-  message: 'Either mobile or email is required',
-  path: ['mobile']
-});
-
-const verifyResetOtpSchema = z.object({
-  mobile: mobileValidation.optional(),
-  email: emailValidation.optional(),
-  otp: otpValidation,
-}).refine(data => data.mobile || data.email, {
-  message: 'Either mobile or email is required',
-  path: ['mobile']
+  mobile: mobileValidation,
 });
 
 const resetPasswordSchema = z.object({
-  mobile: mobileValidation.optional(),
-  email: emailValidation.optional(),
+  mobile: mobileValidation,
   otp: otpValidation,
   newPassword: strictPasswordValidation,
-}).refine(data => data.mobile || data.email, {
-  message: 'Either mobile or email is required',
-  path: ['mobile']
 });
 
 const vendorRegisterSchema = z.object({
@@ -177,7 +160,6 @@ module.exports = {
   customerLoginSchema,
   verifyOtpSchema,
   forgotPasswordSchema,
-  verifyResetOtpSchema,
   resetPasswordSchema,
   adminLoginSchema,
   vendorLoginSchema,

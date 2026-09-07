@@ -32,12 +32,6 @@ const forgotPassword = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, message: 'OTP sent successfully. Please check your phone/email.' });
 });
 
-const verifyResetOtp = asyncHandler(async (req, res) => {
-  const { mobile, email, otp } = req.body;
-  await customerAuthService.verifyResetOtp(mobile, email, otp);
-  res.status(200).json({ success: true, message: 'OTP verified successfully' });
-});
-
 const resetPassword = asyncHandler(async (req, res) => {
   const { mobile, email, otp, newPassword } = req.body;
   await customerAuthService.resetPassword(mobile, email, otp, newPassword);
@@ -70,5 +64,5 @@ const setDefaultAddress = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  register, verifyOtp, login, forgotPassword, verifyResetOtp, resetPassword, getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress
+  register, verifyOtp, login, forgotPassword, resetPassword, getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress
 };

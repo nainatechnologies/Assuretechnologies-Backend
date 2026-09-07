@@ -1,33 +1,19 @@
 const { Op } = require('sequelize');
 const Vendor = require('../vendor/vendor.model');
+const crypto = require('crypto');
+const OtpModel = require('./otp.model');
+const { sendRegistrationOTP } = require('../../utils/smsGateway');
 const { comparePassword, hashPassword } = require('../../utils/hash');
 const { generateToken } = require('../../utils/jwt');
 const AppError = require('../../utils/AppError');
 
-const findVendor = async (email, mobile) => {
-  const cleanEmail = email ? email.trim().toLowerCase() : null;
-  const cleanMobile = mobile ? mobile.trim() : null;
-
-  if (cleanEmail && cleanMobile) {
-    return await Vendor.findOne({
-      where: {
-        [Op.or]: [{ email: cleanEmail }, { mobile: cleanMobile }]
-      }
-    });
-  } else if (cleanEmail) {
-    return await Vendor.findOne({ where: { email: cleanEmail } });
-  } else if (cleanMobile) {
-    return await Vendor.findOne({ where: { mobile: cleanMobile } });
-  }
-  return null;
-};
-
-const login = async (email, mobile, password) => {
-  if ((!email && !mobile) || !password) {
-    throw new AppError('Email or mobile number and password are required', 400);
+const login = async (mobile, email, password) => {
+  if ((!mobile && !email) || !password) {
+    throw new AppError('Mobile/email and password are required', 400);
   }
 
-  const user = await findVendor(email, mobile);
+  const whereClause = mobile ? { mobile } : { email };
+  const user = await Vendor.findOne({ where: whereClause });
   if (!user) {
     throw new AppError('Invalid credentials', 401);
   }
@@ -41,67 +27,64 @@ const login = async (email, mobile, password) => {
   }
 
   const token = generateToken({ id: user.id, role: 'vendor' });
-  
+
   const userData = user.toJSON();
   delete userData.password_hash;
 
   return { user: userData, token };
 };
 
-const forgotPassword = async (email, mobile) => {
-  if (!email && !mobile) {
-    throw new AppError('Email or mobile number is required', 400);
-  }
+const forgotPassword = async (mobile, email) => {
+  if (!mobile && !email) throw new AppError('Mobile or email is required', 400);
 
-  const user = await findVendor(email, mobile);
-  if (!user) {
-    throw new AppError('Vendor account not found with this email / mobile', 404);
-  }
-  if (!user.is_active) {
-    throw new AppError('Vendor account is deactivated', 403);
-  }
+  const whereClause = mobile ? { mobile } : { email };
+  const user = await Vendor.findOne({ where: whereClause });
 
-  return true;
-};
+  if (!user) throw new AppError('Vendor not found', 404);
 
-const verifyResetOtp = async (email, mobile, otp) => {
-  if ((!email && !mobile) || !otp) {
-    throw new AppError('Email/mobile and OTP are required', 400);
-  }
-  if (otp !== '123456') {
-    throw new AppError('Invalid OTP', 400);
-  }
+  const targetMobile = mobile || user.mobile;
+  const generatedOtp = crypto.randomInt(100000, 1000000).toString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  const user = await findVendor(email, mobile);
-  if (!user) {
-    throw new AppError('Vendor account not found', 404);
-  }
+  // Invalidate any existing unused OTPs
+  await OtpModel.destroy({ where: { mobile: targetMobile } });
+
+  await OtpModel.create({
+    mobile: targetMobile,
+    otp: generatedOtp,
+    expires_at: expiresAt
+  });
+
+  await sendRegistrationOTP(targetMobile, generatedOtp);
 
   return true;
 };
 
-const resetPassword = async (email, mobile, otp, newPassword) => {
-  if ((!email && !mobile) || !otp || !newPassword) {
-    throw new AppError('Missing required fields', 400);
-  }
-  if (otp !== '123456') {
-    throw new AppError('Invalid or expired OTP', 400);
-  }
+const resetPassword = async (mobile, email, otp, newPassword) => {
+  if ((!mobile && !email) || !otp || !newPassword) throw new AppError('Missing required fields', 400);
 
-  const user = await findVendor(email, mobile);
-  if (!user) {
-    throw new AppError('Vendor account not found', 404);
-  }
+  const whereClause = mobile ? { mobile } : { email };
+  const user = await Vendor.findOne({ where: whereClause });
+  if (!user) throw new AppError('Vendor not found', 404);
 
-  user.password_hash = await hashPassword(newPassword);
+  const otpRecord = await OtpModel.findOne({
+    where: {
+      mobile: user.mobile,
+      otp,
+      expires_at: {
+        [Op.gt]: new Date()
+      }
+    }
+  });
+
+  if (!otpRecord) throw new AppError('Invalid or expired OTP', 400);
+  await otpRecord.destroy();
+
+  const password_hash = await hashPassword(newPassword);
+  user.password_hash = password_hash;
   await user.save();
 
   return true;
 };
 
-module.exports = {
-  login,
-  forgotPassword,
-  verifyResetOtp,
-  resetPassword
-};
+module.exports = { login, forgotPassword, resetPassword };

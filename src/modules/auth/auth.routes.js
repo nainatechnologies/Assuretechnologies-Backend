@@ -10,12 +10,50 @@ const partnerAuth = require('./partnerAuth.controller');
 const { validateRequest } = require('../../middleware/validate.middleware');
 const authSchemas = require('./auth.validation');
 const customerSchemas = require('../customer/customer.validation');
+const rateLimit = require('express-rate-limit');
+const { verifyToken } = require('../../utils/jwt');
+const Technician = require('../technician/technician.model');
+const Partner = require('../partner/partner.model');
+
+const otpLimiter = rateLimit({
+  windowMs: 30 * 1000, // 30 seconds
+  max: 1, // Limit each IP to 1 OTP request per window
+  message: { success: false, message: 'Please wait 30 seconds before requesting another OTP.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // Admin Auth
 router.post('/admin/login', validateRequest(authSchemas.adminLoginSchema), adminAuth.login);
 
-// Global & Role-Specific Logout Handlers
-const handleLogout = (req, res) => {
+// Global & Role-Specific Logout Handler
+const handleLogout = async (req, res) => {
+  try {
+    let token = null;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else {
+      token = req.cookies?.technician_token || req.cookies?.partner_token || req.cookies?.token;
+    }
+
+    if (token) {
+      try {
+        const decoded = verifyToken(token);
+        if (decoded && decoded.id) {
+          if (decoded.role === 'technician') {
+            await Technician.update({ is_online: false }, { where: { id: decoded.id } });
+          } else if (decoded.role === 'partner') {
+            await Partner.update({ is_online: false }, { where: { id: decoded.id } });
+          }
+        }
+      } catch (tokenErr) {
+        // Token invalid or expired, ignore and proceed
+      }
+    }
+  } catch (err) {
+    console.error('Auto-offline on logout error:', err);
+  }
+
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -37,23 +75,28 @@ router.post('/admin/logout', handleLogout);
 router.post('/customer/logout', handleLogout);
 
 // Customer Auth
-router.post('/customer/register', validateRequest(authSchemas.customerRegisterSchema), customerAuth.register);
+router.post('/customer/register', otpLimiter, validateRequest(authSchemas.customerRegisterSchema), customerAuth.register);
 router.post('/customer/verify-otp', validateRequest(authSchemas.verifyOtpSchema), customerAuth.verifyOtp);
 router.post('/customer/login', validateRequest(authSchemas.customerLoginSchema), customerAuth.login);
-router.post('/customer/forgot-password', validateRequest(authSchemas.forgotPasswordSchema), customerAuth.forgotPassword);
-router.post('/customer/verify-reset-otp', validateRequest(authSchemas.verifyResetOtpSchema), customerAuth.verifyResetOtp);
+router.post('/customer/forgot-password', otpLimiter, validateRequest(authSchemas.forgotPasswordSchema), customerAuth.forgotPassword);
 router.post('/customer/reset-password', validateRequest(authSchemas.resetPasswordSchema), customerAuth.resetPassword);
 
 // Vendor Auth
 router.post('/vendor/login', validateRequest(authSchemas.vendorLoginSchema), vendorAuth.login);
+router.post('/vendor/forgot-password', otpLimiter, validateRequest(authSchemas.forgotPasswordSchema), vendorAuth.forgotPassword);
+router.post('/vendor/reset-password', validateRequest(authSchemas.resetPasswordSchema), vendorAuth.resetPassword);
 
 // Technician Auth
 router.post('/technician/login', validateRequest(authSchemas.partnerLoginSchema), technicianAuth.login);
 router.post('/technician/set-password', validateRequest(authSchemas.technicianSetPasswordSchema), technicianAuth.setPassword);
+router.post('/technician/forgot-password', otpLimiter, validateRequest(authSchemas.forgotPasswordSchema), technicianAuth.forgotPassword);
+router.post('/technician/reset-password', validateRequest(authSchemas.resetPasswordSchema), technicianAuth.resetPassword);
 
 // Partner Auth
 router.post('/partner/login', validateRequest(authSchemas.partnerLoginSchema), partnerAuth.login);
 router.post('/partner/set-password', validateRequest(authSchemas.partnerSetPasswordSchema), partnerAuth.setPassword);
+router.post('/partner/forgot-password', otpLimiter, validateRequest(authSchemas.forgotPasswordSchema), partnerAuth.forgotPassword);
+router.post('/partner/reset-password', validateRequest(authSchemas.resetPasswordSchema), partnerAuth.resetPassword);
 
 
 // Customer Address routes

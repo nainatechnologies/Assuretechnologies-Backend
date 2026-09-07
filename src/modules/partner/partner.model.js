@@ -87,6 +87,11 @@ const Partner = sequelize.define('Partner', {
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
+  },
+  is_online: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
   }
 }, {
   timestamps: true,

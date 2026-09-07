@@ -10,13 +10,13 @@ const { finalizePaidOrder } = require('../order/order.service');
 const createRazorpayOrder = async (amount, receipt_id) => {
   const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
 
   const options = {
-    amount: Math.round(amount * 100),
+    amount: Math.round(amount * 100), // convert to paise
     currency: 'INR',
-    receipt: receipt_id
+    receipt: receipt_id,
   };
 
   const razorpayOrder = await razorpay.orders.create(options);
@@ -52,15 +52,19 @@ const createBooking = async (bookingData, user) => {
   const Customer = require('../customer/customer.model');
   const customer = await Customer.findByPk(customer_id);
 
+  const subtotal_amount = Math.round(final_price * 100) / 100;
+  const tax_amount = Math.round(subtotal_amount * 0.18 * 100) / 100;
+  const total_amount = Math.round((subtotal_amount + tax_amount) * 100) / 100;
+
   const order = await Order.create({
     order_number,
     customer_id,
     customer_name: customer ? customer.full_name : 'Customer',
     customer_contact: customer ? customer.mobile : '',
     customer_address: typeof address === 'object' ? JSON.stringify(address) : address,
-    subtotal_amount: final_price,
-    tax_amount: 0,
-    total_amount: final_price,
+    subtotal_amount,
+    tax_amount,
+    total_amount,
     status: 'NEW',
     payment_status: 'PENDING'
   });
@@ -81,18 +85,22 @@ const createBooking = async (bookingData, user) => {
   });
 
   let razorpay_order_id = null;
-  if (final_price > 0) {
-    razorpay_order_id = await createRazorpayOrder(final_price, order_number);
+  if (total_amount > 0) {
+    razorpay_order_id = await createRazorpayOrder(total_amount, order_number);
+    order.razorpay_order_id = razorpay_order_id;
+    await order.save();
   }
 
   return {
     message: 'Booking created successfully',
     booking_id: booking.id,
     order_number: order.order_number,
-    total_amount: final_price,
+    subtotal_amount,
+    tax_amount,
+    total_amount,
     razorpay_order_id,
     razorpay_key_id: process.env.RAZORPAY_KEY_ID || null,
-    requires_payment: final_price > 0
+    requires_payment: (total_amount || final_price) > 0
   };
 };
 
@@ -138,6 +146,18 @@ const getCustomerBookings = async (user, booking_id = null) => {
     ],
     order: [['createdAt', 'DESC']]
   });
+
+  const { Invoice } = require('../../models');
+  const displayIds = bookings.map(b => b.display_id);
+  const existingInvoices = await Invoice.findAll({
+    where: { order_id: displayIds, type: 'SERVICE' },
+    attributes: ['order_id']
+  });
+  const existingInvoiceIds = existingInvoices.map(i => i.order_id);
+
+  for (const b of bookings) {
+    b.dataValues.has_invoice = existingInvoiceIds.includes(b.display_id);
+  }
 
   return booking_id ? (bookings[0] || null) : bookings;
 };
@@ -366,23 +386,31 @@ const verifyPayment = async (booking_id, payment_data, user) => {
 
   if (razorpay_order_id && razorpay_payment_id && razorpay_signature) {
     const secret = process.env.RAZORPAY_KEY_SECRET;
-    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(body.toString())
-      .digest('hex');
+    if (secret) {
+      const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
 
-    if (expectedSignature !== razorpay_signature) {
-      throw new AppError('Invalid payment signature', 400);
+      const isSignatureValid =
+        expectedSignature.length === razorpay_signature.length &&
+        crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(razorpay_signature));
+
+      if (!isSignatureValid) {
+        throw new AppError('Invalid payment signature', 400);
+      }
     }
   }
 
   // Enrich payment details in Order using finalizePaidOrder
-  await finalizePaidOrder(booking.Order, {
-    razorpay_order_id,
-    razorpay_payment_id,
-    razorpay_signature
-  });
+  if (booking.Order) {
+    await finalizePaidOrder(booking.Order, {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    });
+  }
 
   booking.prebooking_paid = true;
   await booking.save();
@@ -390,7 +418,7 @@ const verifyPayment = async (booking_id, payment_data, user) => {
   return {
     message: 'Payment verified and booking confirmed',
     booking_id: booking.id,
-    order_number: booking.Order.order_number
+    order_number: booking.Order ? booking.Order.order_number : undefined
   };
 };
 
@@ -410,7 +438,7 @@ const updateBookingStatus = async (booking_id, status, reason) => {
 
   if (status === 'CANCELLED') {
     booking.cancelled_by = 'ADMIN';
-    booking.cancellation_reason = reason || 'Cancelled by Admin';
+    booking.cancellation_reason = reason || 'Unable to fulfill booking at scheduled time';
   }
 
   await booking.save();
@@ -526,6 +554,10 @@ const handleTechnicianAction = async (booking_id, technician_id, actionData) => 
       throw new AppError(`Cannot start work from status: ${booking.status}`, 400);
     }
     newStatus = 'IN_PROGRESS';
+
+    // Auto-turn ON duty availability when technician starts work
+    const Technician = require('../technician/technician.model');
+    await Technician.update({ is_online: true }, { where: { id: technician_id, is_online: false } });
   } else if (action === 'COMPLETE_WORK') {
     if (booking.status !== 'IN_PROGRESS') {
       throw new AppError(`Cannot complete work from status: ${booking.status}`, 400);
@@ -596,11 +628,12 @@ const getAvailablePartnersForBooking = async (booking_id) => {
 
   const Partner = require('../partner/partner.model');
   
-  // Fetch active partners with the exact required_partner_type_id
+  // Fetch active and online partners with the exact required_partner_type_id
   const matchingPartners = await Partner.findAll({
     where: { 
       partner_type_id: requiredPartnerTypeId,
-      is_active: true
+      is_active: true,
+      is_online: true
     },
     attributes: { exclude: ['password_hash'] }
   });
@@ -618,9 +651,11 @@ const getAvailablePartnersForBooking = async (booking_id) => {
   return availablePartners;
 };
 
-const getPartnerBookings = async (partner_id) => {
-  const bookings = await ServiceBooking.findAll({
-    where: { assigned_partner_id: partner_id },
+const getPartnerBookings = async (partner_id, page = 1, limit = 10) => {
+  const offset = (page - 1) * limit;
+  const { count, rows } = await ServiceBooking.findAndCountAll({
+    limit,
+    offset,
     include: [
       {
         model: Order,
@@ -646,7 +681,15 @@ const getPartnerBookings = async (partner_id) => {
     order: [['scheduled_date', 'ASC'], ['createdAt', 'DESC']]
   });
 
-  return bookings;
+  return {
+    data: rows,
+    meta: {
+      total: count,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(count / limit)
+    }
+  };
 };
 
 const getPartnerBookingDetails = async (booking_id, partner_id) => {
@@ -700,6 +743,10 @@ const handlePartnerAction = async (booking_id, partner_id, actionData) => {
       throw new AppError(`Cannot start work from status: ${booking.status}`, 400);
     }
     newStatus = 'IN_PROGRESS';
+
+    // Auto-turn ON duty availability when partner starts work
+    const Partner = require('../partner/partner.model');
+    await Partner.update({ is_online: true }, { where: { id: partner_id, is_online: false } });
   } else if (action === 'COMPLETE_WORK') {
     if (booking.status !== 'IN_PROGRESS') {
       throw new AppError(`Cannot complete work from status: ${booking.status}`, 400);

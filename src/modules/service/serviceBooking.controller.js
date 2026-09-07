@@ -62,8 +62,11 @@ const assignBooking = asyncHandler(async (req, res) => {
 
 const getTechnicianBookings = asyncHandler(async (req, res) => {
   const bookings = await bookingService.getTechnicianBookings(req.user.id);
+  const Technician = require('../technician/technician.model');
+  const tech = await Technician.findByPk(req.user.id, { attributes: ['id', 'is_online'] });
   res.status(200).json({
     success: true,
+    is_online: tech ? !!tech.is_online : false,
     data: bookings
   });
 });
@@ -106,10 +109,16 @@ const getAvailablePartnersForBooking = asyncHandler(async (req, res) => {
 });
 
 const getPartnerBookings = asyncHandler(async (req, res) => {
-  const bookings = await bookingService.getPartnerBookings(req.user.id);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const result = await bookingService.getPartnerBookings(req.user.id, page, limit);
+  const Partner = require('../partner/partner.model');
+  const partner = await Partner.findByPk(req.user.id, { attributes: ['id', 'is_online'] });
   res.status(200).json({
     success: true,
-    data: bookings
+    is_online: partner ? !!partner.is_online : false,
+    data: result.data,
+    meta: result.meta
   });
 });
 

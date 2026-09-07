@@ -2,9 +2,9 @@ const vendorAuthService = require('./vendorAuth.service');
 const asyncHandler = require('../../utils/asyncHandler');
 
 const login = asyncHandler(async (req, res) => {
-  const { email, mobile, password } = req.body;
-  
-  const data = await vendorAuthService.login(email, mobile, password);
+  const { mobile, email, password } = req.body;
+
+  const data = await vendorAuthService.login(mobile, email, password);
 
   res.cookie('vendor_token', data.token, {
     httpOnly: true,
@@ -18,25 +18,14 @@ const login = asyncHandler(async (req, res) => {
 
 const forgotPassword = asyncHandler(async (req, res) => {
   const { mobile, email } = req.body;
-  await vendorAuthService.forgotPassword(email, mobile);
-  res.status(200).json({ success: true, message: 'OTP sent successfully. Please check your email.' });
-});
-
-const verifyResetOtp = asyncHandler(async (req, res) => {
-  const { mobile, email, otp } = req.body;
-  await vendorAuthService.verifyResetOtp(email, mobile, otp);
-  res.status(200).json({ success: true, message: 'OTP verified successfully' });
+  await vendorAuthService.forgotPassword(mobile, email);
+  res.status(200).json({ success: true, message: 'OTP sent successfully. Please check your phone/email.' });
 });
 
 const resetPassword = asyncHandler(async (req, res) => {
   const { mobile, email, otp, newPassword } = req.body;
-  await vendorAuthService.resetPassword(email, mobile, otp, newPassword);
-  res.status(200).json({ success: true, message: 'Password reset successfully. Please login with your new password.' });
+  await vendorAuthService.resetPassword(mobile, email, otp, newPassword);
+  res.status(200).json({ success: true, message: 'Password reset successfully' });
 });
 
-module.exports = {
-  login,
-  forgotPassword,
-  verifyResetOtp,
-  resetPassword
-};
+module.exports = { login, forgotPassword, resetPassword };

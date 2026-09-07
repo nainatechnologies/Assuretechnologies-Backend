@@ -1,3 +1,4 @@
+const Otp = require('../modules/auth/otp.model');
 const Notification = require('../modules/notification/notification.model');
 const Admin = require('../modules/admin/admin.model');
 const Customer = require('../modules/customer/customer.model');
@@ -49,6 +50,7 @@ module.exports = {
   JobPosting,
   JobApplication,
   VendorPayout,
+  Otp,
   Quotation,
   QuotationItem,
 };
