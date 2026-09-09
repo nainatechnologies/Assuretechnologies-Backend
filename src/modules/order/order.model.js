@@ -125,6 +125,18 @@ const Order = sequelize.define('Order', {
   paid_at: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  remaining_balance: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0.00
+  },
+  remaining_balance_paid: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true
+  },
+  remaining_balance_payment_id: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   timestamps: true,

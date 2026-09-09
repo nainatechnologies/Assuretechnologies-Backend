@@ -1,6 +1,7 @@
 const { Invoice, InvoiceItem, Order, OrderItem, Vendor, Product, Customer, ServiceBooking, Service, ExtraItemsRequest } = require('../../models');
 const AppError = require('../../utils/AppError');
-const { buildInvoicePdf } = require('../../utils/pdfGenerator');
+const { buildInvoicePdf, generateInvoicePdfBuffer } = require('../../utils/pdfGenerator');
+const { uploadPdfStreamToCloudinary } = require('../../utils/cloudinary');
 
 const createVendorInvoice = async (vendor_id, orderId, items) => {
   const order = await Order.findOne({
@@ -95,19 +96,19 @@ const deleteAdminInvoice = async (id) => {
 const createServiceInvoice = async (invoiceData) => {
   const { srNo, customerName, mobile, email, address, items, additionalChargesDesc, additionalCharges, gstPercent, grandTotal, serviceName } = invoiceData;
 
+  const booking = await ServiceBooking.findOne({
+    where: { auto_id: parseInt(srNo.split('-')[1]) - 1000 },
+    include: [
+      { model: Service },
+      { model: Order }
+    ]
+  });
+
   // Validate base service payload against DB truth
   if (items && items.length > 0) {
-    const booking = await ServiceBooking.findOne({
-      where: { auto_id: parseInt(srNo.split('-')[1]) - 1000 },
-      include: [
-        { model: Service },
-        { model: Order }
-      ]
-    });
-
     if (booking) {
       const trueQty = booking.quantity ? parseFloat(booking.quantity) : 1;
-      const trueRate = parseFloat(booking.Order && booking.Order.subtotal_amount) || (booking.Service ? parseFloat(booking.Service.prebooking_charge) : 0) || 0;
+      const trueRate = (booking.Order && booking.Order.subtotal_amount && trueQty) ? parseFloat(booking.Order.subtotal_amount) / trueQty : (booking.Service ? parseFloat(booking.Service.prebooking_charge) : 0);
       
       const payloadQty = parseFloat(items[0].qty) || 0;
       const payloadRate = parseFloat(items[0].rate) || 0;
@@ -120,6 +121,16 @@ const createServiceInvoice = async (invoiceData) => {
 
   const invoice_number = 'INV' + Date.now() + Math.floor(Math.random() * 1000);
 
+  // Calculate remaining balance based on what was already paid in the Order
+  const orderTotal = booking && booking.Order ? parseFloat(booking.Order.total_amount) : 0;
+  const grandTotalParsed = parseFloat(grandTotal) || 0;
+  // If the new invoice total is greater than what was originally paid, there's a balance.
+  // E.g., Order total = 1180, Invoice grand total = 1180 (no balance)
+  // E.g., Order total = 1180, Invoice grand total = 2360 (balance = 1180)
+  // Allow a small margin of error for floating point
+  let balance = grandTotalParsed - orderTotal;
+  if (balance < 1) balance = 0; // if it's pennies, ignore it
+
   const invoice = await Invoice.create({
     invoice_number,
     order_id: srNo, // We map the booking's display_id (e.g. BKG-1025) to order_id
@@ -131,7 +142,7 @@ const createServiceInvoice = async (invoiceData) => {
     additional_charges: additionalCharges || 0,
     gst_percent: gstPercent || 18,
     grand_total: grandTotal,
-    status: 'Paid',
+    status: balance > 0 ? 'Pending' : 'Paid',
     type: 'SERVICE'
   });
 
@@ -149,6 +160,61 @@ const createServiceInvoice = async (invoiceData) => {
         serial_numbers: Array.isArray(item.serialNumbers) ? JSON.stringify(item.serialNumbers) : (item.serialNumbers || '[]')
       });
     }
+  }
+
+  // Update the Order with the remaining balance
+  if (booking && booking.Order && balance > 0) {
+    booking.Order.remaining_balance = balance;
+    booking.Order.remaining_balance_paid = false;
+    await booking.Order.save();
+  }
+
+  // Generate PDF and upload to Cloudinary
+  try {
+    const pdfInvoiceData = {
+      invoice_number: invoice.invoice_number,
+      customer: {
+        name: invoice.customer_name,
+        mobile: invoice.mobile,
+        address: invoice.address || 'Address not provided'
+      },
+      items: items && items.length > 0 ? items.map(item => ({
+        item_type: 'Item',
+        description: item.description || serviceName || 'Service',
+        price: parseFloat(item.rate || 0),
+        qty: parseInt(item.qty || 1, 10)
+      })) : [],
+      total_amount: parseFloat(invoice.grand_total)
+    };
+
+    if (parseFloat(invoice.additional_charges) > 0) {
+      pdfInvoiceData.items.push({
+        item_type: 'Additional Charges',
+        description: invoice.additional_charges_desc || 'Extra Fees',
+        price: parseFloat(invoice.additional_charges),
+        qty: 1
+      });
+    }
+
+    const subtotal = pdfInvoiceData.items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+    const gstAmount = parseFloat(invoice.grand_total) - subtotal;
+    if (gstAmount > 0) {
+      pdfInvoiceData.items.push({
+        item_type: 'Tax',
+        description: `GST (${parseFloat(invoice.gst_percent)}%)`,
+        price: gstAmount,
+        qty: 1
+      });
+    }
+
+    const pdfBuffer = await generateInvoicePdfBuffer(pdfInvoiceData);
+    const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${invoice.invoice_number}`);
+    
+    invoice.invoice_pdf_url = pdfUrl;
+    await invoice.save();
+  } catch (error) {
+    console.error('Error generating/uploading PDF during invoice creation:', error);
+    // We don't fail the invoice creation if PDF upload fails, but it won't have a URL.
   }
 
   return invoice;
@@ -203,7 +269,7 @@ const getPendingServiceBookings = async () => {
       service: b.Service ? b.Service.name : 'Custom Service',
       category: (b.Service && b.Service.category) ? b.Service.category.name : 'Service',
       qty: b.quantity ? parseFloat(b.quantity) : 1,
-      rate: parseFloat(b.Order && b.Order.subtotal_amount) || (b.Service ? parseFloat(b.Service.prebooking_charge) : 0) || 0,
+      rate: (b.Order && b.Order.subtotal_amount && b.quantity) ? parseFloat(b.Order.subtotal_amount) / parseFloat(b.quantity) : (b.Service ? parseFloat(b.Service.prebooking_charge) : 0),
       completedOn: b.updatedAt.toDateString(),
       extraItems: b.extra_items ? b.extra_items.map((extra) => ({
         description: extra.description,
@@ -213,58 +279,82 @@ const getPendingServiceBookings = async () => {
   });
 };
 
-const generateServiceInvoicePdf = async (bookingId, res) => {
-  let booking = await ServiceBooking.findOne({
-    where: { auto_id: bookingId }, // user passes BKG-1025
-    include: [
-      { model: Service },
-      { model: Order, include: [{ model: Customer, as: 'customer' }] },
-      { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
-    ]
-  });
+const generateServiceInvoicePdf = async (bookingId) => {
+  let booking = null;
+  const bookingIdStr = String(bookingId || '').trim();
 
-  if (!booking) {
-    // Fallback to internal UUID if display_id fails
-    const bookingByUuid = await ServiceBooking.findByPk(bookingId, {
+  if (bookingIdStr.startsWith('BKG-')) {
+    const autoId = parseInt(bookingIdStr.replace('BKG-', ''), 10) - 1000;
+    if (!isNaN(autoId)) {
+      booking = await ServiceBooking.findOne({
+        where: { auto_id: autoId },
+        include: [
+          { model: Service },
+          { model: Order, include: [{ model: Customer, as: 'customer' }] },
+          { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
+        ]
+      });
+    }
+  } else if (!isNaN(Number(bookingIdStr)) && bookingIdStr !== '') {
+    booking = await ServiceBooking.findOne({
+      where: { auto_id: Number(bookingIdStr) },
       include: [
         { model: Service },
         { model: Order, include: [{ model: Customer, as: 'customer' }] },
         { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
       ]
     });
-    if (!bookingByUuid) throw new AppError('Service Booking not found', 404);
-    booking = bookingByUuid;
   }
 
-  // Instead of dynamically generating the PDF, we fetch the saved invoice
-  const displayId = `BKG-${booking.auto_id + 1000}`;
-  const savedInvoice = await Invoice.findOne({
+  if (!booking) {
+    // Fallback to internal UUID if display_id fails
+    const bookingByUuid = await ServiceBooking.findByPk(bookingIdStr, {
+      include: [
+        { model: Service },
+        { model: Order, include: [{ model: Customer, as: 'customer' }] },
+        { model: ExtraItemsRequest, as: 'extra_items', where: { status: 'APPROVED' }, required: false }
+      ]
+    });
+    if (bookingByUuid) {
+      booking = bookingByUuid;
+    }
+  }
+
+  const displayId = booking ? `BKG-${booking.auto_id + 1000}` : bookingIdStr;
+
+  let savedInvoice = await Invoice.findOne({
     where: { order_id: displayId, type: 'SERVICE' },
     include: [{ model: InvoiceItem, as: 'items' }]
   });
+
+  if (!savedInvoice && bookingIdStr !== displayId) {
+    savedInvoice = await Invoice.findOne({
+      where: { order_id: bookingIdStr, type: 'SERVICE' },
+      include: [{ model: InvoiceItem, as: 'items' }]
+    });
+  }
 
   if (!savedInvoice) {
     throw new AppError('Invoice not generated by Admin yet', 404);
   }
 
-  // Format data for buildInvoicePdf
+  // Generate the PDF buffer
   const invoiceData = {
-     invoice_number: savedInvoice.invoice_number,
-     customer: {
-       name: savedInvoice.customer_name,
-       mobile: savedInvoice.mobile,
-       address: savedInvoice.address || 'Address not provided'
-     },
-     items: savedInvoice.items.map(item => ({
-       item_type: 'Item',
-       description: item.description,
-       price: parseFloat(item.rate),
-       qty: item.qty
-     })),
-     total_amount: parseFloat(savedInvoice.grand_total)
+    invoice_number: savedInvoice.invoice_number,
+    customer: {
+      name: savedInvoice.customer_name,
+      mobile: savedInvoice.mobile,
+      address: savedInvoice.address || 'Address not provided'
+    },
+    items: (savedInvoice.items || []).map(item => ({
+      item_type: 'Item',
+      description: item.description,
+      price: parseFloat(item.rate),
+      qty: item.qty
+    })),
+    total_amount: parseFloat(savedInvoice.grand_total)
   };
 
-  // Add additional charges / GST to display if they exist
   if (parseFloat(savedInvoice.additional_charges) > 0) {
     invoiceData.items.push({
       item_type: 'Additional Charges',
@@ -286,10 +376,20 @@ const generateServiceInvoicePdf = async (bookingId, res) => {
     });
   }
 
-  buildInvoicePdf(invoiceData,
-    chunk => res.write(chunk),
-    () => res.end()
-  );
+  const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
+
+  // If not already uploaded to Cloudinary, upload and save URL
+  if (!savedInvoice.invoice_pdf_url) {
+    try {
+      const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${savedInvoice.invoice_number}`);
+      savedInvoice.invoice_pdf_url = pdfUrl;
+      await savedInvoice.save();
+    } catch (err) {
+      console.error('Failed to cache invoice PDF to Cloudinary:', err);
+    }
+  }
+
+  return { pdfBuffer, invoice: savedInvoice };
 };
 
 module.exports = {

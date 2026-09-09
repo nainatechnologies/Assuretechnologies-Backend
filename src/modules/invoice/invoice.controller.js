@@ -27,13 +27,14 @@ const deleteAdminInvoice = async (req, res) => {
 
 const downloadServiceInvoice = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
+  const { pdfBuffer, invoice } = await invoiceService.generateServiceInvoicePdf(bookingId);
   
-  // Set headers to trigger a download
+  const fileName = `Invoice-${invoice.invoice_number || bookingId}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', "attachment; filename=Invoice-$bookingId.pdf");
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Content-Length', pdfBuffer.length);
 
-  // Stream the PDF back directly
-  await invoiceService.generateServiceInvoicePdf(bookingId, res);
+  res.send(pdfBuffer);
 });
 
 const createServiceInvoice = asyncHandler(async (req, res) => {

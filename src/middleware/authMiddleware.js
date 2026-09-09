@@ -26,7 +26,19 @@ const authMiddleware = (allowedRoles = []) => {
         }
       }
 
-      // 2. If Bearer token didn't yield a valid authorized user, check cookies
+      // 1.5 Check query token (useful for file download endpoints and browser redirects)
+      if (!validUser && req.query && req.query.token) {
+        try {
+          const decoded = verifyToken(req.query.token);
+          if (allowedRoles.length === 0 || allowedRoles.includes(decoded.role)) {
+            validUser = decoded;
+          }
+        } catch (e) {
+          // query token invalid/expired
+        }
+      }
+
+      // 2. If Bearer/Query token didn't yield a valid authorized user, check cookies
       let isTokenValidButForbidden = false;
       if (!validUser) {
         const clientType = req.headers['x-client-type'];

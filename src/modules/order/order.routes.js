@@ -27,6 +27,9 @@ router.get('/payment-callback', orderController.handlePaymentCallback);
 router.get('/:orderId', authMiddleware(['admin', 'vendor', 'customer']), orderController.getOrderById);
 router.post('/', orderCreateLimiter, authMiddleware(['customer', 'admin', 'guest']), validateRequest(orderSchemas.createOrderSchema), orderController.createOrder);
 router.post('/verify-payment', paymentVerifyLimiter, authMiddleware(['customer', 'admin', 'guest']), validateRequest(orderSchemas.verifyPaymentSchema), orderController.verifyPayment);
+
+router.post('/:orderId/pay-balance', paymentVerifyLimiter, authMiddleware(['customer', 'admin', 'guest']), orderController.createBalancePayment);
+router.post('/:orderId/verify-balance-payment', paymentVerifyLimiter, authMiddleware(['customer', 'admin', 'guest']), orderController.verifyBalancePayment);
 router.post('/webhook', orderController.handleRazorpayWebhook);
 router.post('/:orderId/items/:itemId/split', authMiddleware(['admin']), validateRequest(orderSchemas.splitOrderItemSchema), orderController.splitOrderItem);
 

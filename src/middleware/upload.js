@@ -17,6 +17,7 @@ const createUpload = (folderName) => {
     params: {
       folder: `assure-backend/${folderName}`, // Automatically creates subfolders in Cloudinary
       allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'pdf'],
+      transformation: [{ quality: 'auto', fetch_format: 'auto' }], // Automatic compression
     },
   });
 

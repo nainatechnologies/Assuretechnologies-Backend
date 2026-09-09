@@ -1,4 +1,5 @@
 const { Product, Vendor } = require('../../models');
+const { deleteFromCloudinary } = require('../../utils/cloudinary');
 const { Op } = require('sequelize');
 const AppError = require('../../utils/AppError');
 
@@ -127,7 +128,7 @@ const createProduct = async (productData, user, file) => {
   
   let banner = productData.banner || '';
   if (file) {
-    banner = file.path || `/uploads/products/${file.filename}`;
+    banner = file.path;
   }
 
   let vendor_id = null;
@@ -160,7 +161,7 @@ const createProduct = async (productData, user, file) => {
 
 const updateProduct = async (id, updateData, user, file) => {
   if (file) {
-    updateData.banner = file.path || `/uploads/products/${file.filename}`;
+    updateData.banner = file.path;
   }
 
   const whereClause = { id };
@@ -183,7 +184,14 @@ const updateProduct = async (id, updateData, user, file) => {
   if (updateData.status === 'Active') updateData.status = 'In Stock';
   if (updateData.status === 'Inactive') updateData.status = 'Out of Stock';
 
+  const oldBanner = product.banner;
   await product.update(updateData);
+
+  // Cleanup old image from Cloudinary if a new one was uploaded
+  if (file && oldBanner && oldBanner.includes('cloudinary.com')) {
+    await deleteFromCloudinary(oldBanner);
+  }
+
   return product;
 };
 
@@ -198,7 +206,15 @@ const deleteProduct = async (id, user) => {
     throw new AppError('Product not found or unauthorized', 404);
   }
   
+  const oldBanner = product.banner;
+  
   await product.destroy();
+
+  // Cleanup image from Cloudinary
+  if (oldBanner && oldBanner.includes('cloudinary.com')) {
+    await deleteFromCloudinary(oldBanner);
+  }
+
   return { message: 'Product deleted successfully' };
 };
 

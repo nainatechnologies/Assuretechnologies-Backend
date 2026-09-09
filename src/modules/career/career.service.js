@@ -62,7 +62,7 @@ exports.submitApplication = async (data, file) => {
 
   let resumeUrl = null;
   if (file) {
-    resumeUrl = '/uploads/resumes/' + file.filename;
+    resumeUrl = file.path;
   }
 
   const application = await JobApplication.create({ ...data, resumeUrl });

@@ -59,6 +59,10 @@ const Invoice = sequelize.define('Invoice', {
   type: {
     type: DataTypes.ENUM('VENDOR', 'SERVICE'),
     defaultValue: 'VENDOR'
+  },
+  invoice_pdf_url: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   timestamps: true,

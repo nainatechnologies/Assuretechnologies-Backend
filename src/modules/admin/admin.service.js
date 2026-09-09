@@ -93,9 +93,9 @@ const createVendor = async (data, files) => {
 
   const password_hash = await hashPassword(password);
 
-  const aadhar_proof = files && files.aadhar_proof ? '/uploads/vendors/' + files.aadhar_proof[0].filename : null;
-  const pan_proof = files && files.pan_proof ? '/uploads/vendors/' + files.pan_proof[0].filename : null;
-  const shop_photo = files && files.shop_photo ? '/uploads/vendors/' + files.shop_photo[0].filename : null;
+  const aadhar_proof = files && files.aadhar_proof ? files.aadhar_proof[0].path : null;
+  const pan_proof = files && files.pan_proof ? files.pan_proof[0].path : null;
+  const shop_photo = files && files.shop_photo ? files.shop_photo[0].path : null;
 
   const vendor = await Vendor.create({
     email, mobile, password_hash, full_name, business_name, address, gst_number,
@@ -127,8 +127,8 @@ const createTechnician = async (data, files) => {
     try { parsed_services_provided = JSON.parse(parsed_services_provided); } catch (e) { parsed_services_provided = parsed_services_provided.split(','); }
   }
 
-  const id_proof = files && files.id_proof ? '/uploads/technicians/' + files.id_proof[0].filename : null;
-  const noc_document = files && files.noc_document ? '/uploads/technicians/' + files.noc_document[0].filename : null;
+  const id_proof = files && files.id_proof ? files.id_proof[0].path : null;
+  const noc_document = files && files.noc_document ? files.noc_document[0].path : null;
 
   const technician = await Technician.create({
     email, mobile, password_hash, full_name, address,
@@ -476,7 +476,7 @@ const getPaymentTransactions = async ({ page = 1, limit = 10, search = '', type 
     amount: parseFloat(p.amount || 0),
     method: p.payment_method || 'Bank Transfer',
     status: (p.status || 'COMPLETED').toLowerCase(),
-    proof_image: p.proof_image ? `/uploads/payment_proofs/${p.proof_image}` : null,
+    proof_image: p.proof_image ? (p.proof_image.startsWith('http') ? p.proof_image : `/uploads/payment_proofs/${p.proof_image}`) : null,
     notes: p.transaction_reference || 'Vendor Settlement'
   }));
 
@@ -667,7 +667,7 @@ const processVendorPayout = async ({ vendor_id, order_item_ids, amount, payment_
   }
 
   const payout_number = `PAY-${Date.now().toString().slice(-6)}`;
-  const proof_image = file ? file.filename : null;
+  const proof_image = file ? file.path : null;
 
   const t = await sequelize.transaction();
   try {

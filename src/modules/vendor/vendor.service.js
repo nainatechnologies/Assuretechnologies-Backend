@@ -230,7 +230,7 @@ const getPayoutOrders = async (vendorId) => {
       adminReceived: item.order?.payment_status === 'PAID',
       vendorReceived: item.is_vendor_paid,
       proofFileName: item.payout?.proof_image || null,
-      proofUrl: item.payout?.proof_image ? ('/uploads/payment_proofs/' + item.payout.proof_image) : null,
+      proofUrl: item.payout?.proof_image ? (item.payout.proof_image.startsWith('http') ? item.payout.proof_image : ('/uploads/payment_proofs/' + item.payout.proof_image)) : null,
       referenceNote: item.payout?.transaction_reference || (item.is_vendor_paid ? 'Settled by Admin' : 'Pending Admin Payout'),
       paymentDate: item.vendor_paid_at ? item.vendor_paid_at.toISOString().split('T')[0] : (item.payout?.createdAt ? item.payout.createdAt.toISOString().split('T')[0] : null)
     };

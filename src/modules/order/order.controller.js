@@ -64,6 +64,24 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+exports.createBalancePayment = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.createBalancePayment(orderId, req.user);
+  res.status(200).json({
+    success: true,
+    message: result.message,
+    razorpayOrderId: result.razorpayOrderId,
+    razorpayKeyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_TUJt0fwUv206Vf',
+    amount: result.amount
+  });
+});
+
+exports.verifyBalancePayment = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const result = await orderService.verifyBalancePayment(orderId, req.body, req.user);
+  res.status(200).json(result);
+});
+
 exports.handleRazorpayWebhook = asyncHandler(async (req, res) => {
   const signature = req.headers['x-razorpay-signature'];
   const rawBody = req.rawBody || JSON.stringify(req.body);

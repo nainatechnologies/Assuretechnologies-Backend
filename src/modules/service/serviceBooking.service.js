@@ -121,7 +121,7 @@ const getCustomerBookings = async (user, booking_id = null) => {
         model: Order,
         as: 'Order',
         where: { customer_id: user.id },
-        attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact']
+        attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'remaining_balance', 'remaining_balance_paid', 'remaining_balance_payment_id']
       },
       {
         model: Service,
@@ -324,7 +324,7 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
       {
         model: Order,
         as: 'Order',
-        attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'customer_address'],
+        attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'customer_address', 'remaining_balance', 'remaining_balance_paid', 'remaining_balance_payment_id'],
         include: [
           {
             model: Customer,
@@ -654,6 +654,7 @@ const getAvailablePartnersForBooking = async (booking_id) => {
 const getPartnerBookings = async (partner_id, page = 1, limit = 10) => {
   const offset = (page - 1) * limit;
   const { count, rows } = await ServiceBooking.findAndCountAll({
+      where: { assigned_partner_id: partner_id },
     limit,
     offset,
     include: [

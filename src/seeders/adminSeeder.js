@@ -6,7 +6,7 @@ require('dotenv').config({ path: '../../.env' }); // Adjust if needed to ensure 
 const seedAdmin = async () => {
   try {
     await connectDB();
-    
+
     // Ensure tables exist before trying to seed
     await sequelize.sync();
 

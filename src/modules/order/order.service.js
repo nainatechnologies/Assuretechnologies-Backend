@@ -1022,6 +1022,80 @@ const handleRazorpayWebhook = async (rawBody, signature) => {
   return { success: true, message: `Webhook event '${event.event}' processed` };
 };
 
+const createBalancePayment = async (orderId, user) => {
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) throw new AppError('Order not found', 404);
+
+  // Check auth
+  if (user && user.role === 'customer' && order.customer_id !== user.id) {
+    throw new AppError('Unauthorized access to this order', 403);
+  }
+
+  const balance = parseFloat(order.remaining_balance);
+  if (!balance || balance <= 0 || order.remaining_balance_paid) {
+    throw new AppError('No remaining balance to pay', 400);
+  }
+
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET
+  });
+
+  const rzpOrder = await razorpay.orders.create({
+    amount: Math.round(balance * 100),
+    currency: 'INR',
+    receipt: `bal_${order.order_number}`
+  });
+
+  return {
+    success: true,
+    message: 'Razorpay order created for balance payment',
+    razorpayOrderId: rzpOrder.id,
+    amount: balance
+  };
+};
+
+const verifyBalancePayment = async (orderId, paymentData, user) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = paymentData;
+
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) throw new AppError('Razorpay secret not configured', 500);
+
+  const generated_signature = crypto
+    .createHmac('sha256', secret)
+    .update(razorpay_order_id + "|" + razorpay_payment_id)
+    .digest('hex');
+
+  const isSignatureValid =
+    generated_signature.length === razorpay_signature.length &&
+    crypto.timingSafeEqual(Buffer.from(generated_signature), Buffer.from(razorpay_signature));
+
+  if (!isSignatureValid) {
+    throw new AppError('Payment verification failed. Invalid signature.', 400);
+  }
+
+  const order = await Order.findOne({ where: { order_number: orderId } });
+  if (!order) throw new AppError('Order not found', 404);
+
+  order.remaining_balance_paid = true;
+  order.remaining_balance_payment_id = razorpay_payment_id;
+  await order.save();
+
+  // Also update the Invoice status to Paid
+  const { Invoice } = require('../../models');
+  const invoice = await Invoice.findOne({ where: { order_id: order.order_number } });
+  if (invoice) {
+    invoice.status = 'Paid';
+    await invoice.save();
+  }
+
+  return {
+    success: true,
+    message: 'Remaining balance paid successfully',
+    order
+  };
+};
+
 module.exports = {
   updateOrderTracking,
   cancelOrder,
@@ -1036,5 +1110,7 @@ module.exports = {
   finalizePaidOrder,
   getAdminRefunds,
   processRefund,
-  rejectRefund
+  rejectRefund,
+  createBalancePayment,
+  verifyBalancePayment
 };

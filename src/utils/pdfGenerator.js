@@ -150,6 +150,22 @@ function formatCurrency(amount) {
   return 'Rs. ' + Number(amount).toFixed(2);
 }
 
+function generateInvoicePdfBuffer(invoiceData) {
+  return new Promise((resolve, reject) => {
+    try {
+      const chunks = [];
+      buildInvoicePdf(
+        invoiceData,
+        (chunk) => chunks.push(chunk),
+        () => resolve(Buffer.concat(chunks))
+      );
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 module.exports = {
-  buildInvoicePdf
+  buildInvoicePdf,
+  generateInvoicePdfBuffer
 };
