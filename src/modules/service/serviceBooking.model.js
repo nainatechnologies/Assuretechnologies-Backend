@@ -60,6 +60,10 @@ const ServiceBooking = sequelize.define('ServiceBooking', {
     type: DataTypes.DATE,
     allowNull: false,
   },
+  scheduled_time_slot: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   address: {
     type: DataTypes.TEXT,
     allowNull: false,

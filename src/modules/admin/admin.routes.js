@@ -48,6 +48,10 @@ router.post('/refunds/:orderId/reject', orderController.rejectRefund);
 router.post('/vendors', uploadVendor.fields([{ name: 'aadhar_proof', maxCount: 1 }, { name: 'pan_proof', maxCount: 1 }, { name: 'shop_photo', maxCount: 1 }]), validateRequest(authSchemas.vendorRegisterSchema), adminController.createVendor);
 router.post('/technicians', uploadTechnician.fields([{ name: 'id_proof', maxCount: 1 }, { name: 'noc_document', maxCount: 1 }]), validateRequest(authSchemas.technicianRegisterSchema), adminController.createTechnician);
 
+router.put('/technicians/:id', uploadTechnician.fields([{ name: 'id_proof', maxCount: 1 }, { name: 'noc_document', maxCount: 1 }]), adminController.updateTechnician);
+router.patch('/technicians/:id/status', adminController.toggleTechnicianStatus);
+
+
 // Categories
 router.get('/categories', adminController.getCategories);
 router.post('/categories', validateRequest(adminSchemas.createCategorySchema), adminController.createCategory);

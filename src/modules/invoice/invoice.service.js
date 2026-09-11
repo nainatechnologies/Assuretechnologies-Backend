@@ -78,13 +78,34 @@ const createVendorInvoice = async (vendor_id, orderId, items) => {
 };
 
 const getAdminInvoices = async () => {
-  return await Invoice.findAll({
+  const invoices = await Invoice.findAll({
     include: [
       { model: InvoiceItem, as: 'items' },
       { model: Vendor, as: 'vendor', attributes: ['id', 'business_name', 'full_name'] }
     ],
     order: [['createdAt', 'DESC']]
   });
+
+  const formatted = await Promise.all(invoices.map(async (inv) => {
+    const json = inv.toJSON ? inv.toJSON() : inv;
+    if (json.type === 'SERVICE' && json.order_id && json.order_id.startsWith('BKG-')) {
+      try {
+        const autoId = parseInt(json.order_id.split('-')[1]) - 1000;
+        const booking = await ServiceBooking.findOne({
+          where: { auto_id: autoId },
+          include: [{ model: Service }]
+        });
+        if (booking && booking.Service) {
+          json.service_name = booking.Service.name;
+        }
+      } catch (err) {
+        console.error('Error resolving service name for invoice:', err);
+      }
+    }
+    return json;
+  }));
+
+  return formatted;
 };
 
 const deleteAdminInvoice = async (id) => {

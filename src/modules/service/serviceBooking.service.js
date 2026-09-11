@@ -27,6 +27,10 @@ const createBooking = async (bookingData, user) => {
   const { service_id, scheduled_date, scheduled_time_slot, address, pincode, lat, lng, quantity = 1, metadata = {} } = bookingData;
   const customer_id = user.id;
 
+  if (!scheduled_time_slot || typeof scheduled_time_slot !== 'string' || !scheduled_time_slot.trim()) {
+    throw new AppError('Scheduled time slot is required', 400);
+  }
+
   // 1. Fetch Service and validate
   const service = await Service.findByPk(service_id);
   if (!service) {
@@ -79,7 +83,10 @@ const createBooking = async (bookingData, user) => {
     lat,
     lng,
     quantity: parsedQty,
-    metadata,
+    metadata: {
+      ...(metadata || {}),
+      scheduled_time_slot: scheduled_time_slot || null
+    },
     status: 'NEW',
     prebooking_paid: false
   });
@@ -451,10 +458,21 @@ const assignBooking = async (booking_id, assignmentData) => {
   const booking = await ServiceBooking.findByPk(booking_id);
   if (!booking) throw new AppError('Booking not found', 404);
 
+  const Technician = require('../technician/technician.model');
+  const Partner = require('../partner/partner.model');
+
   if (technician_id) {
+    const tech = await Technician.findByPk(technician_id);
+    if (!tech) throw new AppError('Technician not found', 404);
+    if (!tech.is_active) throw new AppError('This technician account is currently inactive', 400);
+    if (!tech.is_online) throw new AppError('This technician is currently OFF duty and cannot be assigned', 400);
     booking.assigned_technician_id = technician_id;
   }
   if (partner_id) {
+    const partner = await Partner.findByPk(partner_id);
+    if (!partner) throw new AppError('Partner not found', 404);
+    if (!partner.is_active) throw new AppError('This partner account is currently inactive', 400);
+    if (!partner.is_online) throw new AppError('This partner is currently OFF duty and cannot be assigned', 400);
     booking.assigned_partner_id = partner_id;
   }
 
@@ -629,18 +647,27 @@ const getAvailablePartnersForBooking = async (booking_id) => {
   const Partner = require('../partner/partner.model');
   
   // Fetch active and online partners with the exact required_partner_type_id
+  const { Op } = require('sequelize');
+  const partnerWhere = { 
+    partner_type_id: requiredPartnerTypeId,
+    is_active: true,
+    is_online: true
+  };
+  if (booking.assigned_partner_id) {
+    partnerWhere.id = { [Op.ne]: booking.assigned_partner_id };
+  }
+
   const matchingPartners = await Partner.findAll({
-    where: { 
-      partner_type_id: requiredPartnerTypeId,
-      is_active: true,
-      is_online: true
-    },
+    where: partnerWhere,
     attributes: { exclude: ['password_hash'] }
   });
 
   // Filter in memory for the pincode for maximum accuracy and cross-database compatibility
   const bookingPincode = booking.pincode;
   const availablePartners = matchingPartners.filter(partner => {
+    if (booking.assigned_partner_id && partner.id === booking.assigned_partner_id) {
+      return false;
+    }
     let areas = partner.coverage_areas || [];
     if (typeof areas === 'string') {
       try { areas = JSON.parse(areas); } catch (e) { areas = []; }

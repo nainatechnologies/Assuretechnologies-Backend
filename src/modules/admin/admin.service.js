@@ -7,6 +7,7 @@ const Category = require('../category/category.model');
 const VendorPayout = require('../vendor/vendorPayout.model');
 const OrderItem = require('../order/orderItem.model');
 const Product = require('../product/product.model');
+const Service = require('../service/service.model');
 const { hashPassword } = require('../../utils/hash');
 const { Op, Sequelize } = require('sequelize');
 const { sequelize } = require('../../config/database');
@@ -48,14 +49,56 @@ const getVendors = async (page = 1, limit = 10, search = '') => {
 const getTechnicians = async (page = 1, limit = 10, search = '', filters = {}) => {
   const offset = (page - 1) * limit;
   const whereClause = {};
+  const andConditions = [];
+
+  if (filters.exclude_id) {
+    andConditions.push({
+      id: { [Op.ne]: filters.exclude_id }
+    });
+  }
+
   if (search) {
-    whereClause[Op.or] = [
-      { full_name: { [Op.like]: '%' + search + '%' } },
-      { mobile: { [Op.like]: '%' + search + '%' } },
-      { email: { [Op.like]: '%' + search + '%' } },
-      Sequelize.where(Sequelize.cast(Sequelize.col('service_pincodes'), 'CHAR'), { [Op.like]: '%' + search + '%' }),
-      Sequelize.where(Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'), { [Op.like]: '%' + search + '%' })
+    andConditions.push({
+      [Op.or]: [
+        { full_name: { [Op.like]: '%' + search + '%' } },
+        { mobile: { [Op.like]: '%' + search + '%' } },
+        { email: { [Op.like]: '%' + search + '%' } },
+        Sequelize.where(Sequelize.cast(Sequelize.col('service_pincodes'), 'CHAR'), { [Op.like]: '%' + search + '%' }),
+        Sequelize.where(Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'), { [Op.like]: '%' + search + '%' })
+      ]
+    });
+  }
+
+  if (filters.service_name) {
+    const cleanServiceName = String(filters.service_name).trim();
+    const serviceOrConditions = [
+      Sequelize.where(
+        Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'),
+        { [Op.like]: '%' + cleanServiceName + '%' }
+      )
     ];
+
+    try {
+      const matchingService = await Service.findOne({
+        where: { name: { [Op.like]: '%' + cleanServiceName + '%' } }
+      });
+      if (matchingService && matchingService.id) {
+        serviceOrConditions.push(
+          Sequelize.where(
+            Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'),
+            { [Op.like]: '%' + matchingService.id + '%' }
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error finding matching service for technician filter:', err);
+    }
+
+    andConditions.push({ [Op.or]: serviceOrConditions });
+  }
+
+  if (andConditions.length > 0) {
+    whereClause[Op.and] = andConditions;
   }
 
   if (filters.available_only === 'true' || filters.available_only === true || filters.is_online === 'true' || filters.is_online === true) {
@@ -71,8 +114,26 @@ const getTechnicians = async (page = 1, limit = 10, search = '', filters = {}) =
     offset
   });
 
+  // Resolve any service UUIDs to names for readable frontend display
+  let serviceMap = {};
+  try {
+    const allServices = await Service.findAll({ attributes: ['id', 'name'] });
+    allServices.forEach(s => {
+      serviceMap[s.id] = s.name;
+    });
+  } catch (err) {
+    console.error('Error loading service map for technicians:', err);
+  }
+
+  const formattedRows = rows.map(t => {
+    const json = t.toJSON ? t.toJSON() : t;
+    const rawServices = Array.isArray(json.services_provided) ? json.services_provided : [];
+    json.services_names = rawServices.map(item => serviceMap[item] || item);
+    return json;
+  });
+
   return {
-    data: rows,
+    data: formattedRows,
     pagination: {
       totalItems: count,
       totalPages: Math.ceil(count / limit),
@@ -138,6 +199,68 @@ const createTechnician = async (data, files) => {
     is_active: true
   });
 
+  return technician;
+};
+
+
+const updateTechnician = async (id, data, files) => {
+  const technician = await Technician.findByPk(id);
+  if (!technician) throw new AppError('Technician not found', 404);
+
+  const { email, mobile, password, full_name, address, service_pincodes, services_provided, is_active } = data;
+
+  if (email && email !== technician.email) {
+    const existing = await Technician.findOne({ where: { email, id: { [Op.ne]: id } } });
+    if (existing) throw new AppError('Email already registered', 400);
+  }
+
+  if (mobile && mobile !== technician.mobile) {
+    const existing = await Technician.findOne({ where: { mobile, id: { [Op.ne]: id } } });
+    if (existing) throw new AppError('Mobile already registered', 400);
+  }
+
+  const updates = {};
+  if (full_name !== undefined) updates.full_name = full_name;
+  if (email !== undefined) updates.email = email;
+  if (mobile !== undefined) updates.mobile = mobile;
+  if (address !== undefined) updates.address = address;
+  if (is_active !== undefined) updates.is_active = Boolean(is_active);
+
+  if (password && password.trim().length >= 6) {
+    updates.password_hash = await hashPassword(password);
+  }
+
+  if (service_pincodes !== undefined) {
+    let parsed_service_pincodes = service_pincodes;
+    if (typeof parsed_service_pincodes === 'string') {
+      try { parsed_service_pincodes = JSON.parse(parsed_service_pincodes); } catch (e) { parsed_service_pincodes = parsed_service_pincodes.split(',').map(s => s.trim()).filter(Boolean); }
+    }
+    updates.service_pincodes = parsed_service_pincodes;
+  }
+
+  if (services_provided !== undefined) {
+    let parsed_services_provided = services_provided;
+    if (typeof parsed_services_provided === 'string') {
+      try { parsed_services_provided = JSON.parse(parsed_services_provided); } catch (e) { parsed_services_provided = parsed_services_provided.split(',').map(s => s.trim()).filter(Boolean); }
+    }
+    updates.services_provided = parsed_services_provided;
+  }
+
+  if (files && files.id_proof && files.id_proof[0]) {
+    updates.id_proof = files.id_proof[0].path;
+  }
+  if (files && files.noc_document && files.noc_document[0]) {
+    updates.noc_document = files.noc_document[0].path;
+  }
+
+  await technician.update(updates);
+  return technician;
+};
+
+const toggleTechnicianStatus = async (id, is_active) => {
+  const technician = await Technician.findByPk(id);
+  if (!technician) throw new AppError('Technician not found', 404);
+  await technician.update({ is_active: Boolean(is_active) });
   return technician;
 };
 
@@ -835,6 +958,9 @@ module.exports = {
   getTechnicians,
   createVendor,
   createTechnician,
+  updateTechnician,
+  toggleTechnicianStatus,
+  
   getCategories,
   createCategory,
   getCustomers,

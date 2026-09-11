@@ -112,6 +112,14 @@ const finalizePaidOrder = async (order, { razorpay_order_id, razorpay_payment_id
 
   await order.save({ transaction });
 
+  // Sync prebooking_paid if this order is linked to a ServiceBooking
+  try {
+    const ServiceBooking = require('../service/serviceBooking.model');
+    await ServiceBooking.update({ prebooking_paid: true }, { where: { order_id: order.id }, transaction });
+  } catch (syncErr) {
+    // Ignore if not a service booking
+  }
+
   let lowStockProducts = [];
   // Deduct inventory stock if not already deducted
   if (!wasAlreadyPaid) {
@@ -1082,8 +1090,26 @@ const verifyBalancePayment = async (orderId, paymentData, user) => {
   await order.save();
 
   // Also update the Invoice status to Paid
-  const { Invoice } = require('../../models');
-  const invoice = await Invoice.findOne({ where: { order_id: order.order_number } });
+  const { Invoice, ServiceBooking } = require('../../models');
+  const { Op } = require('sequelize');
+
+  const possibleOrderIds = [order.order_number];
+  try {
+    const booking = await ServiceBooking.findOne({ where: { order_id: order.id } });
+    if (booking) {
+      if (booking.auto_id) possibleOrderIds.push(`BKG-${1000 + booking.auto_id}`);
+      if (booking.display_id) possibleOrderIds.push(booking.display_id);
+      possibleOrderIds.push(booking.id);
+    }
+  } catch (err) {
+    console.error('Error finding booking for invoice update:', err);
+  }
+
+  const invoice = await Invoice.findOne({
+    where: {
+      order_id: { [Op.in]: possibleOrderIds.filter(Boolean) }
+    }
+  });
   if (invoice) {
     invoice.status = 'Paid';
     await invoice.save();

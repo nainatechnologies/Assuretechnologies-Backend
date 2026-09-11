@@ -1,3 +1,46 @@
+const parseSlotStartHour = (slot) => {
+  if (!slot) return null;
+  const match = slot.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const minute = match[2] ? parseInt(match[2], 10) : 0;
+  let period = match[3] ? match[3].toUpperCase() : null;
+
+  if (!period) {
+    if (/PM/i.test(slot) && !/AM/i.test(slot)) {
+      period = 'PM';
+    } else if (hour >= 1 && hour <= 7) {
+      period = 'PM';
+    } else if (hour >= 8 && hour <= 11) {
+      period = 'AM';
+    }
+  }
+
+  if (period === 'PM' && hour < 12) hour += 12;
+  if (period === 'AM' && hour === 12) hour = 0;
+
+  return hour + minute / 60;
+};
+
+const getNowInIST = () => {
+  const now = new Date();
+  const istFormatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  const parts = istFormatter.formatToParts(now);
+  const partMap = {};
+  parts.forEach(p => partMap[p.type] = p.value);
+  const dateStr = `${partMap.year}-${partMap.month}-${partMap.day}`;
+  const currentHour = parseInt(partMap.hour, 10) + parseInt(partMap.minute, 10) / 60;
+  return { dateStr, currentHour };
+};
+
 const { z } = require('zod');
 
 const BOOKING_STATUSES = ['NEW', 'ACCEPTED', 'ASSIGNED', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'COMPLETED', 'CANCELLED'];
@@ -33,16 +76,45 @@ const addressSchema = z.union([
 const createServiceBookingSchema = z.object({
   service_id: z.string({ required_error: 'Service ID is required' }).uuid('Invalid Service ID'),
   scheduled_date: isoDateString,
-  scheduled_time_slot: z.string().min(1, 'Scheduled time slot is required').optional().nullable(),
+  scheduled_time_slot: z.string({ required_error: 'Scheduled time slot is required' }).min(1, 'Scheduled time slot is required'),
   address: addressSchema.refine((value) => {
     if (typeof value === 'string') return value.trim().length > 0;
     return Object.keys(value).length > 0;
   }, { message: 'Address is required' }),
   pincode: z.string({ required_error: 'Pincode is required' }).regex(/^\d{6}$/, 'Pincode must be a valid 6-digit number'),
-  lat: z.number().min(-90, 'Latitude must be between -90 and 90').max(90, 'Latitude must be between -90 and 90').optional().nullable(),
-  lng: z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180').optional().nullable(),
+  lat: z.number().min(6.0, 'Latitude must be between 6.0 and 38.0 (India)').max(38.0, 'Latitude must be between 6.0 and 38.0 (India)').optional().nullable(),
+  lng: z.number().min(68.0, 'Longitude must be between 68.0 and 98.0 (India)').max(98.0, 'Longitude must be between 68.0 and 98.0 (India)').optional().nullable(),
   quantity: z.number({ invalid_type_error: 'Quantity must be a number' }).positive('Quantity must be greater than 0').optional().nullable(),
   metadata: z.record(z.any()).optional().nullable(),
+}).refine((data) => {
+  if (!data.scheduled_time_slot || !data.scheduled_date) return true;
+  const { dateStr, currentHour } = getNowInIST();
+  const scheduledDateStr = String(data.scheduled_date).split('T')[0];
+
+  if (scheduledDateStr === dateStr) {
+    const slotStartHour = parseSlotStartHour(data.scheduled_time_slot);
+    if (slotStartHour !== null && slotStartHour <= currentHour) {
+      return false;
+    }
+  }
+  return true;
+}, {
+  message: 'Selected time slot has already passed for today. Please select an upcoming slot or future date.',
+  path: ['scheduled_time_slot'],
+}).refine((data) => {
+  if (data.lat && data.lng && data.pincode) {
+    const firstDigit = String(data.pincode)[0];
+    if ((firstDigit === '5' || firstDigit === '6') && data.lat > 22.0) {
+      return false;
+    }
+    if ((firstDigit === '1' || firstDigit === '2') && data.lat < 23.0) {
+      return false;
+    }
+  }
+  return true;
+}, {
+  message: 'The GPS coordinates do not match the region of the entered pincode. Please verify your map pin.',
+  path: ['lat'],
 });
 
 const verifyPaymentSchema = z.object({

@@ -8,8 +8,13 @@ const getVendors = asyncHandler(async (req, res) => {
 });
 
 const getTechnicians = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, search = '', available_only, is_online } = req.query;
-  const result = await adminService.getTechnicians(Number(page), Number(limit), search, { available_only, is_online });
+  const { page = 1, limit = 10, search = '', available_only, is_online, service_name, service, exclude_id } = req.query;
+  const result = await adminService.getTechnicians(Number(page), Number(limit), search, {
+    available_only,
+    is_online,
+    service_name: service_name || service,
+    exclude_id
+  });
   res.status(200).json({ success: true, data: result.data, pagination: result.pagination });
 });
 
@@ -21,6 +26,17 @@ const createVendor = asyncHandler(async (req, res) => {
 const createTechnician = asyncHandler(async (req, res) => {
   const technician = await adminService.createTechnician(req.body, req.files);
   res.status(201).json({ success: true, data: technician });
+});
+
+
+const updateTechnician = asyncHandler(async (req, res) => {
+  const technician = await adminService.updateTechnician(req.params.id, req.body, req.files);
+  res.status(200).json({ success: true, message: 'Technician updated successfully', data: technician });
+});
+
+const toggleTechnicianStatus = asyncHandler(async (req, res) => {
+  const technician = await adminService.toggleTechnicianStatus(req.params.id, req.body.is_active);
+  res.status(200).json({ success: true, message: 'Technician status updated successfully', data: technician });
 });
 
 const getCategories = asyncHandler(async (req, res) => {
@@ -117,6 +133,9 @@ module.exports = {
   getTechnicians,
   createVendor,
   createTechnician,
+  updateTechnician,
+  toggleTechnicianStatus,
+  
   getCategories,
   createCategory,
   getCustomers,
