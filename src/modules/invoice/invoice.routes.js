@@ -17,4 +17,7 @@ router.get('/service-bookings/pending', authMiddleware(['admin']), invoiceContro
 router.post('/service', authMiddleware(['admin']), invoiceController.createServiceInvoice);
 router.get('/service/:bookingId/download', authMiddleware(['customer', 'admin', 'technician', 'partner']), invoiceController.downloadServiceInvoice);
 
+// Product Order Invoice routes
+router.get('/orders/:orderId/download', authMiddleware(['customer', 'admin', 'vendor']), invoiceController.downloadOrderInvoice);
+
 module.exports = router;

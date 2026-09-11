@@ -212,6 +212,10 @@ const createOrder = async (orderData, user) => {
 
   if (user && user.role === 'customer') {
     customer_id = user.id;
+    const customer = await Customer.findByPk(customer_id);
+    if (!customer) {
+      throw new AppError('Customer account not found or session has expired. Please log out and log in again.', 401);
+    }
   }
 
   if (!items || items.length === 0) {
@@ -520,6 +524,16 @@ const updateOrderStatus = async (orderId, updateData, user = null) => {
 
   if (updateData.status) { order.status = updateData.status; }
   await order.save();
+
+  if (updateData.status === 'COMPLETED') {
+    try {
+      const invoiceService = require('../invoice/invoice.service');
+      await invoiceService.autoGenerateProductInvoice(order.order_number);
+    } catch (invErr) {
+      console.error('Error auto-generating invoice on order completion:', invErr);
+    }
+  }
+
   return { message: 'Order status updated successfully', order };
 };
 

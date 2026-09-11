@@ -47,11 +47,24 @@ const getPendingServiceBookings = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: pendingBookings });
 });
 
+const downloadOrderInvoice = asyncHandler(async (req, res) => {
+  const { orderId } = req.params;
+  const { pdfBuffer, invoice } = await invoiceService.generateOrderInvoicePdf(orderId);
+  
+  const fileName = `Invoice-${invoice.invoice_number || orderId}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Content-Length', pdfBuffer.length);
+
+  res.send(pdfBuffer);
+});
+
 module.exports = {
   createVendorInvoice,
   getAdminInvoices,
   deleteAdminInvoice,
   downloadServiceInvoice,
+  downloadOrderInvoice,
   createServiceInvoice,
   getPendingServiceBookings
 };

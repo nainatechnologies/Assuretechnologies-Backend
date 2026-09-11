@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const ServiceBooking = require('./serviceBooking.model');
 const Service = require('./service.model');
 const Order = require('../order/order.model');
@@ -25,7 +26,13 @@ const createRazorpayOrder = async (amount, receipt_id) => {
 
 const createBooking = async (bookingData, user) => {
   const { service_id, scheduled_date, scheduled_time_slot, address, pincode, lat, lng, quantity = 1, metadata = {} } = bookingData;
-  const customer_id = user.id;
+  const customer_id = user ? user.id : null;
+
+  const Customer = require('../customer/customer.model');
+  const customer = customer_id ? await Customer.findByPk(customer_id) : null;
+  if (customer_id && !customer) {
+    throw new AppError('Customer account not found or session has expired. Please log out and log in again.', 401);
+  }
 
   if (!scheduled_time_slot || typeof scheduled_time_slot !== 'string' || !scheduled_time_slot.trim()) {
     throw new AppError('Scheduled time slot is required', 400);
@@ -52,62 +59,69 @@ const createBooking = async (bookingData, user) => {
 
   const order_number = 'SBK' + datePart + timePart + randomPart;
 
-  // Fetch actual customer to get name and mobile
-  const Customer = require('../customer/customer.model');
-  const customer = await Customer.findByPk(customer_id);
-
   const subtotal_amount = Math.round(final_price * 100) / 100;
   const tax_amount = Math.round(subtotal_amount * 0.18 * 100) / 100;
   const total_amount = Math.round((subtotal_amount + tax_amount) * 100) / 100;
 
-  const order = await Order.create({
-    order_number,
-    customer_id,
-    customer_name: customer ? customer.full_name : 'Customer',
-    customer_contact: customer ? customer.mobile : '',
-    customer_address: typeof address === 'object' ? JSON.stringify(address) : address,
-    subtotal_amount,
-    tax_amount,
-    total_amount,
-    status: 'NEW',
-    payment_status: 'PENDING'
-  });
+  // If service is free (total_amount === 0), create booking directly in database
+  if (total_amount === 0) {
+    const Customer = require('../customer/customer.model');
+    const customer = await Customer.findByPk(customer_id);
 
-  const booking = await ServiceBooking.create({
-    order_id: order.id,
-    service_id,
-    scheduled_date,
-    scheduled_time_slot: scheduled_time_slot || null,
-    address: typeof address === 'object' ? JSON.stringify(address) : address,
-    pincode,
-    lat,
-    lng,
-    quantity: parsedQty,
-    metadata: {
-      ...(metadata || {}),
-      scheduled_time_slot: scheduled_time_slot || null
-    },
-    status: 'NEW',
-    prebooking_paid: false
-  });
+    const order = await Order.create({
+      order_number,
+      customer_id,
+      customer_name: customer ? customer.full_name : 'Customer',
+      customer_contact: customer ? customer.mobile : '',
+      customer_address: typeof address === 'object' ? JSON.stringify(address) : address,
+      subtotal_amount,
+      tax_amount,
+      total_amount,
+      status: 'NEW',
+      payment_status: 'PAID'
+    });
 
-  let razorpay_order_id = null;
-  if (total_amount > 0) {
-    razorpay_order_id = await createRazorpayOrder(total_amount, order_number);
-    order.razorpay_order_id = razorpay_order_id;
-    await order.save();
+    const booking = await ServiceBooking.create({
+      order_id: order.id,
+      service_id,
+      scheduled_date,
+      scheduled_time_slot: scheduled_time_slot || null,
+      address: typeof address === 'object' ? JSON.stringify(address) : address,
+      pincode,
+      lat,
+      lng,
+      quantity: parsedQty,
+      metadata: {
+        ...(metadata || {}),
+        scheduled_time_slot: scheduled_time_slot || null
+      },
+      status: 'NEW',
+      prebooking_paid: true
+    });
+
+    return {
+      message: 'Booking created successfully',
+      booking_id: booking.id,
+      order_number: order.order_number,
+      subtotal_amount,
+      tax_amount,
+      total_amount,
+      requires_payment: false
+    };
   }
 
+  // Approach A: Generate Razorpay checkout intent WITHOUT creating database records
+  const razorpay_order_id = await createRazorpayOrder(total_amount, order_number);
+
   return {
-    message: 'Booking created successfully',
-    booking_id: booking.id,
-    order_number: order.order_number,
+    message: 'Checkout intent created successfully',
+    order_number,
     subtotal_amount,
     tax_amount,
     total_amount,
     razorpay_order_id,
     razorpay_key_id: process.env.RAZORPAY_KEY_ID || null,
-    requires_payment: (total_amount || final_price) > 0
+    requires_payment: true
   };
 };
 
@@ -116,7 +130,12 @@ const getCustomerBookings = async (user, booking_id = null) => {
   const JobProgress = require('./jobProgress.model');
   const ExtraItemsRequest = require('./extraItemsRequest.model');
 
-  const whereClause = {};
+  const whereClause = {
+    [Op.or]: [
+      { prebooking_paid: true },
+      { '$Order.total_amount$': 0 }
+    ]
+  };
   if (booking_id) {
     whereClause.id = booking_id;
   }
@@ -331,6 +350,12 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
       {
         model: Order,
         as: 'Order',
+        where: {
+          [Op.or]: [
+            { payment_status: 'PAID' },
+            { total_amount: 0 }
+          ]
+        },
         attributes: ['order_number', 'total_amount', 'payment_status', 'payment_method', 'payment_details', 'paid_at', 'razorpay_payment_id', 'customer_name', 'customer_contact', 'customer_address', 'remaining_balance', 'remaining_balance_paid', 'remaining_balance_payment_id'],
         include: [
           {
@@ -378,19 +403,30 @@ const getAdminBookings = async (status, owner_type, page = 1, limit = 10) => {
   };
 };
 
-const verifyPayment = async (booking_id, payment_data, user) => {
-  const booking = await ServiceBooking.findByPk(booking_id, {
-    include: [{ model: Order, as: 'Order' }, { model: Service, as: 'Service' }]
-  });
+const verifyPayment = async (payloadOrBookingId, paymentDataOrUser, possibleUser) => {
+  let booking_id, booking_payload, razorpay_order_id, razorpay_payment_id, razorpay_signature, user;
 
-  if (!booking) throw new AppError('Booking not found', 404);
-
-  if (!booking.Order || booking.Order.customer_id !== user.id) {
-    throw new AppError('You are not authorized to verify this booking', 403);
+  if (typeof payloadOrBookingId === 'string') {
+    // Legacy calling convention: verifyPayment(booking_id, payment_data, user)
+    booking_id = payloadOrBookingId;
+    const payment_data = paymentDataOrUser || {};
+    user = possibleUser;
+    razorpay_order_id = payment_data.razorpay_order_id;
+    razorpay_payment_id = payment_data.razorpay_payment_id;
+    razorpay_signature = payment_data.razorpay_signature;
+    booking_payload = payment_data.booking_payload;
+  } else {
+    // Modern calling convention: verifyPayment(req.body, req.user)
+    const payload = payloadOrBookingId || {};
+    user = paymentDataOrUser;
+    booking_id = payload.booking_id;
+    booking_payload = payload.booking_payload;
+    razorpay_order_id = payload.razorpay_order_id;
+    razorpay_payment_id = payload.razorpay_payment_id;
+    razorpay_signature = payload.razorpay_signature;
   }
 
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = payment_data;
-
+  // Cryptographically verify Razorpay signature
   if (razorpay_order_id && razorpay_payment_id && razorpay_signature) {
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (secret) {
@@ -408,6 +444,113 @@ const verifyPayment = async (booking_id, payment_data, user) => {
         throw new AppError('Invalid payment signature', 400);
       }
     }
+  }
+
+  // 1. Approach A: If booking_payload is provided, create Order and ServiceBooking in DB NOW!
+  if (booking_payload) {
+    const { service_id, scheduled_date, scheduled_time_slot, address, pincode, lat, lng, quantity = 1, metadata = {} } = booking_payload;
+    const customer_id = user ? user.id : null;
+
+    const service = await Service.findByPk(service_id);
+    if (!service) throw new AppError('Service not found', 404);
+
+    const rate = parseFloat(service.price || service.prebooking_charge || 0);
+    const parsedQty = parseFloat(quantity || 1);
+    const final_price = Math.round(rate * parsedQty * 100) / 100;
+    const subtotal_amount = Math.round(final_price * 100) / 100;
+    const tax_amount = Math.round(subtotal_amount * 0.18 * 100) / 100;
+    const total_amount = Math.round((subtotal_amount + tax_amount) * 100) / 100;
+
+    const now = new Date();
+    const datePart = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
+    const timePart = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
+    const randomPart = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+    const order_number = 'SBK' + datePart + timePart + randomPart;
+
+    const Customer = require('../customer/customer.model');
+    const customer = customer_id ? await Customer.findByPk(customer_id) : null;
+    if (customer_id && !customer) {
+      throw new AppError('Customer account not found or session has expired. Please log out and log in again.', 401);
+    }
+
+    const { sequelize } = require('../../config/database');
+    const t = await sequelize.transaction();
+
+    try {
+      const order = await Order.create({
+        order_number,
+        customer_id,
+        customer_name: customer ? customer.full_name : 'Customer',
+        customer_contact: customer ? customer.mobile : '',
+        customer_address: typeof address === 'object' ? JSON.stringify(address) : address,
+        subtotal_amount,
+        tax_amount,
+        total_amount,
+        status: 'NEW',
+        payment_status: 'PAID',
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+        paid_at: new Date(),
+        payment_method: 'ONLINE'
+      }, { transaction: t });
+
+      const booking = await ServiceBooking.create({
+        order_id: order.id,
+        service_id,
+        scheduled_date,
+        scheduled_time_slot: scheduled_time_slot || null,
+        address: typeof address === 'object' ? JSON.stringify(address) : address,
+        pincode,
+        lat,
+        lng,
+        quantity: parsedQty,
+        metadata: {
+          ...(metadata || {}),
+          scheduled_time_slot: scheduled_time_slot || null
+        },
+        status: 'NEW',
+        prebooking_paid: true
+      }, { transaction: t });
+
+      await t.commit();
+
+      // Trigger real-time notification to Admin
+      try {
+        const notificationService = require('../notification/notification.service');
+        notificationService.createNotification({
+          title: 'New Service Request',
+          message: `New service request #${order.order_number} for "${service.name}" placed by ${customer ? customer.full_name : 'Customer'}`,
+          type: 'SERVICE',
+          action_url: '/admin/service-assignments',
+          target_role: 'admin',
+          metadata: { booking_id: booking.id, order_number: order.order_number, service_id: service.id }
+        });
+      } catch (notifErr) {
+        console.error('Failed to send notification for service booking:', notifErr);
+      }
+
+      return {
+        message: 'Payment verified and booking confirmed successfully',
+        booking_id: booking.id,
+        order_number: order.order_number,
+        total_amount: order.total_amount
+      };
+    } catch (dbErr) {
+      await t.rollback();
+      throw dbErr;
+    }
+  }
+
+  // 2. Legacy fallback if booking_id was passed
+  const booking = await ServiceBooking.findByPk(booking_id, {
+    include: [{ model: Order, as: 'Order' }, { model: Service, as: 'Service' }]
+  });
+
+  if (!booking) throw new AppError('Booking not found', 404);
+
+  if (user && booking.Order && booking.Order.customer_id !== user.id) {
+    throw new AppError('You are not authorized to verify this booking', 403);
   }
 
   // Enrich payment details in Order using finalizePaidOrder

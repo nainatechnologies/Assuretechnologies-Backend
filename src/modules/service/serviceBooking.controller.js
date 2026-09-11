@@ -30,9 +30,7 @@ const getAdminBookings = asyncHandler(async (req, res) => {
 });
 
 const verifyPayment = asyncHandler(async (req, res) => {
-  const { booking_id, ...payment_data } = req.body;
-
-  const result = await bookingService.verifyPayment(booking_id, payment_data, req.user);
+  const result = await bookingService.verifyPayment(req.body, req.user);
   res.status(200).json({
     success: true,
     ...result

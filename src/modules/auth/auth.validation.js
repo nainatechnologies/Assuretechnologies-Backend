@@ -97,14 +97,43 @@ const vendorRegisterSchema = z.object({
   bank_account_details: z.string().optional(),
 });
 
+const parseArrayField = (val) => {
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      return val.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+  return val;
+};
+
+const parseJsonRecordField = (val) => {
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch (e) {
+      return {};
+    }
+  }
+  return val;
+};
+
 const technicianRegisterSchema = z.object({
   email: emailValidation,
   mobile: mobileValidation,
   password: strictPasswordValidation,
   full_name: nameValidation,
   address: addressValidation,
-  service_pincodes: z.array(z.string().regex(/^\d{6}$/, 'Each service pincode must be a valid 6-digit pincode')).min(1, 'Please select at least one service pincode'),
-  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service'),
+  service_pincodes: z.preprocess(
+    parseArrayField,
+    z.array(z.string().regex(/^\d{6}$/, 'Each service pincode must be a valid 6-digit pincode')).min(1, 'Please select at least one service pincode')
+  ),
+  services_provided: z.preprocess(
+    parseArrayField,
+    z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service')
+  ),
 });
 
 const droneRegisterSchema = z.object({
@@ -113,8 +142,14 @@ const droneRegisterSchema = z.object({
   password: strictPasswordValidation,
   full_name: nameValidation,
   address: addressValidation,
-  coverage_areas: z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please select at least one coverage pincode'),
-  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service'),
+  coverage_areas: z.preprocess(
+    parseArrayField,
+    z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please select at least one coverage pincode')
+  ),
+  services_provided: z.preprocess(
+    parseArrayField,
+    z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service')
+  ),
 });
 
 const partnerRegisterSchema = z.object({
@@ -123,10 +158,19 @@ const partnerRegisterSchema = z.object({
   password: strictPasswordValidation,
   full_name: nameValidation,
   address: addressValidation,
-  coverage_areas: z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please select at least one coverage pincode'),
-  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service'),
+  coverage_areas: z.preprocess(
+    parseArrayField,
+    z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please select at least one coverage pincode')
+  ),
+  services_provided: z.preprocess(
+    parseArrayField,
+    z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service')
+  ),
   partner_type_id: z.string({ required_error: 'Please select a partner type' }).uuid('Please select a valid partner type'),
-  custom_field_values: z.record(z.any()).optional()
+  custom_field_values: z.preprocess(
+    parseJsonRecordField,
+    z.record(z.any()).optional()
+  )
 });
 
 const technicianSetPasswordSchema = z.object({

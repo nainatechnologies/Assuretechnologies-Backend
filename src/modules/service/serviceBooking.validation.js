@@ -118,10 +118,16 @@ const createServiceBookingSchema = z.object({
 });
 
 const verifyPaymentSchema = z.object({
-  booking_id: z.string({ required_error: 'Booking ID is required' }).uuid('Invalid Booking ID'),
+  booking_id: z.string().uuid('Invalid Booking ID').optional(),
+  booking_payload: z.any().optional(),
   razorpay_order_id: z.string().optional(),
   razorpay_payment_id: z.string().optional(),
   razorpay_signature: z.string().optional(),
+}).refine((data) => {
+  return data.booking_id || data.booking_payload;
+}, {
+  message: 'Either booking_payload or booking_id is required',
+  path: ['booking_payload'],
 }).refine((data) => {
   return data.razorpay_order_id || data.razorpay_payment_id || data.razorpay_signature;
 }, {

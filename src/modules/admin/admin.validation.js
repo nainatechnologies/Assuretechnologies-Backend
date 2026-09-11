@@ -31,6 +31,29 @@ const updatePricingTypeSchema = z.object({
   description: z.string().optional()
 });
 
+const parseArrayField = (val) => {
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      return val.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+  return val;
+};
+
+const parseJsonRecordField = (val) => {
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch (e) {
+      return {};
+    }
+  }
+  return val;
+};
+
 const updatePartnerSchema = z.object({
   full_name: z.string().trim().min(3, 'Name must be at least 3 characters long').optional(),
   email: z.string().trim().toLowerCase().email('Please provide a valid email address').optional(),
@@ -38,9 +61,18 @@ const updatePartnerSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters long').optional().nullable(),
   address: z.string().trim().min(5, 'Address must be at least 5 characters long').optional(),
   partner_type_id: z.string().uuid('Please select a valid partner type').optional(),
-  coverage_areas: z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please provide at least one coverage pincode').optional(),
-  services_provided: z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service').optional(),
-  custom_field_values: z.record(z.any()).optional(),
+  coverage_areas: z.preprocess(
+    (val) => val === undefined ? undefined : parseArrayField(val),
+    z.array(z.string().regex(/^\d{6}$/, 'Each coverage area must be a valid 6-digit pincode')).min(1, 'Please provide at least one coverage pincode').optional()
+  ),
+  services_provided: z.preprocess(
+    (val) => val === undefined ? undefined : parseArrayField(val),
+    z.array(z.string().uuid('Please select a valid service from the list')).min(1, 'Please select at least one service').optional()
+  ),
+  custom_field_values: z.preprocess(
+    (val) => val === undefined ? undefined : parseJsonRecordField(val),
+    z.record(z.any()).optional()
+  ),
   is_active: z.boolean().optional()
 });
 

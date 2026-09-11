@@ -102,6 +102,16 @@ const getAdminInvoices = async () => {
         console.error('Error resolving service name for invoice:', err);
       }
     }
+
+    if (json.type === 'VENDOR') {
+      json.sold_by = json.vendor ? (json.vendor.business_name || json.vendor.full_name) : 'Assure Technologies';
+      json.product_name = (json.items && json.items.length > 0 && json.items[0].description)
+        ? json.items.map(i => i.description).filter(Boolean).join(', ')
+        : 'Product';
+    } else {
+      json.sold_by = 'Assure Technologies';
+    }
+
     return json;
   }));
 
@@ -413,11 +423,187 @@ const generateServiceInvoicePdf = async (bookingId) => {
   return { pdfBuffer, invoice: savedInvoice };
 };
 
+const autoGenerateProductInvoice = async (orderId) => {
+  const existingInvoice = await Invoice.findOne({ where: { order_id: orderId } });
+  if (existingInvoice) {
+    if (existingInvoice.status !== 'Paid') {
+      existingInvoice.status = 'Paid';
+      await existingInvoice.save();
+    }
+    return existingInvoice;
+  }
+
+  const order = await Order.findOne({
+    where: { order_number: orderId },
+    include: [
+      { model: Customer, as: 'customer' },
+      { 
+        model: OrderItem, 
+        as: 'items',
+        include: [{ model: Product, as: 'product' }]
+      }
+    ]
+  });
+
+  if (!order) return null;
+
+  const vendorId = (order.items && order.items.length > 0) ? order.items[0].vendor_id : null;
+  const invoice_number = 'INV' + Date.now() + Math.floor(Math.random() * 1000);
+  const grand_total = parseFloat(order.total_amount) || 0;
+
+  const invoice = await Invoice.create({
+    invoice_number,
+    order_id: order.order_number,
+    vendor_id: vendorId,
+    customer_name: order.customer_name || (order.customer ? order.customer.full_name : 'N/A'),
+    mobile: order.customer_contact || (order.customer ? order.customer.mobile : 'N/A'),
+    email: order.customer ? order.customer.email : '',
+    address: order.customer_address || '',
+    additional_charges: 0,
+    gst_percent: 18,
+    grand_total,
+    status: 'Paid',
+    type: 'VENDOR'
+  });
+
+  if (order.items && order.items.length > 0) {
+    for (const item of order.items) {
+      await InvoiceItem.create({
+        invoice_id: invoice.id,
+        description: (item.product ? item.product.name : (item.Product ? item.Product.name : 'Product')),
+        qty: item.qty || 1,
+        rate: item.price || 0,
+        amount: item.subtotal || 0,
+        warranty: '',
+        model_number: '',
+        hsn_code: '',
+        serial_numbers: '[]'
+      });
+    }
+  }
+
+  try {
+    const pdfInvoiceData = {
+      invoice_number: invoice.invoice_number,
+      customer: {
+        name: invoice.customer_name,
+        mobile: invoice.mobile,
+        address: invoice.address || 'Address not provided'
+      },
+      items: (order.items && order.items.length > 0) ? order.items.map(item => ({
+        item_type: 'Product',
+        description: (item.product ? item.product.name : (item.Product ? item.Product.name : 'Product')),
+        price: parseFloat(item.price || 0),
+        qty: parseInt(item.qty || 1, 10)
+      })) : [],
+      total_amount: grand_total
+    };
+
+    const pdfBuffer = await generateInvoicePdfBuffer(pdfInvoiceData);
+    const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${invoice.invoice_number}`);
+    invoice.invoice_pdf_url = pdfUrl;
+    await invoice.save();
+  } catch (pdfErr) {
+    console.error('Error auto-generating PDF for product order invoice:', pdfErr);
+  }
+
+  return invoice;
+};
+
+const generateOrderInvoicePdf = async (orderId) => {
+  const orderIdStr = String(orderId || '').trim();
+
+  let invoice = await Invoice.findOne({
+    where: { order_id: orderIdStr, type: 'VENDOR' },
+    include: [
+      { model: InvoiceItem, as: 'items' },
+      { model: Vendor, as: 'vendor' }
+    ]
+  });
+
+  if (!invoice) {
+    const { Op } = require('sequelize');
+    const order = await Order.findOne({
+      where: {
+        [Op.or]: [{ order_number: orderIdStr }, { id: orderIdStr }]
+      }
+    });
+
+    if (order) {
+      invoice = await Invoice.findOne({
+        where: { order_id: order.order_number, type: 'VENDOR' },
+        include: [
+          { model: InvoiceItem, as: 'items' },
+          { model: Vendor, as: 'vendor' }
+        ]
+      });
+
+      if (!invoice && (order.status === 'COMPLETED' || order.status === 'Delivered' || order.payment_status === 'PAID')) {
+        await autoGenerateProductInvoice(order.order_number);
+        invoice = await Invoice.findOne({
+          where: { order_id: order.order_number, type: 'VENDOR' },
+          include: [
+            { model: InvoiceItem, as: 'items' },
+            { model: Vendor, as: 'vendor' }
+          ]
+        });
+      }
+    }
+  }
+
+  if (!invoice) {
+    throw new AppError('Invoice not found for this order', 404);
+  }
+
+  const invoiceData = {
+    invoice_number: invoice.invoice_number,
+    customer: {
+      name: invoice.customer_name,
+      mobile: invoice.mobile,
+      address: invoice.address || 'Address not provided'
+    },
+    items: (invoice.items || []).map(item => ({
+      item_type: 'Product',
+      description: item.description,
+      price: parseFloat(item.rate),
+      qty: item.qty
+    })),
+    total_amount: parseFloat(invoice.grand_total)
+  };
+
+  const subtotal = invoiceData.items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+  const gstAmount = parseFloat(invoice.grand_total) - subtotal;
+  if (gstAmount > 0.01) {
+    invoiceData.items.push({
+      item_type: 'Tax',
+      description: `GST (${parseFloat(invoice.gst_percent || 18)}%)`,
+      price: gstAmount,
+      qty: 1
+    });
+  }
+
+  const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
+
+  if (!invoice.invoice_pdf_url) {
+    try {
+      const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${invoice.invoice_number}`);
+      invoice.invoice_pdf_url = pdfUrl;
+      await invoice.save();
+    } catch (err) {
+      console.error('Failed to cache order invoice PDF to Cloudinary:', err);
+    }
+  }
+
+  return { pdfBuffer, invoice };
+};
+
 module.exports = {
   deleteAdminInvoice,
   createVendorInvoice,
   getAdminInvoices,
   generateServiceInvoicePdf,
   createServiceInvoice,
-  getPendingServiceBookings
+  getPendingServiceBookings,
+  autoGenerateProductInvoice,
+  generateOrderInvoicePdf
 };

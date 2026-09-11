@@ -44,8 +44,13 @@ const createPartner = async (data) => {
   return partner;
 };
 
-const getPartnerTypes = async () => {
+const getPartnerTypes = async (categoryId = null) => {
+  const where = {};
+  if (categoryId) {
+    where.category_id = categoryId;
+  }
   return await PartnerType.findAll({ 
+    where,
     include: [{ model: Category, as: 'category', attributes: ['id', 'name'] }],
     order: [['createdAt', 'DESC']] 
   });

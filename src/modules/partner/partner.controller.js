@@ -25,7 +25,8 @@ const togglePartnerStatus = asyncHandler(async (req, res) => {
 });
 
 const getPartnerTypes = asyncHandler(async (req, res) => {
-  const types = await partnerService.getPartnerTypes();
+  const { category_id } = req.query;
+  const types = await partnerService.getPartnerTypes(category_id);
   res.status(200).json({ success: true, data: types });
 });
 
