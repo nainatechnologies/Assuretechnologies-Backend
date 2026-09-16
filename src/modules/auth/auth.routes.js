@@ -18,6 +18,7 @@ const Partner = require('../partner/partner.model');
 const otpLimiter = rateLimit({
   windowMs: 30 * 1000, // 30 seconds
   max: 1, // Limit each IP to 1 OTP request per window
+  skipFailedRequests: true, // Do not count 4xx errors (e.g. Customer not found) against the rate limit
   message: { success: false, message: 'Please wait 30 seconds before requesting another OTP.' },
   standardHeaders: true,
   legacyHeaders: false

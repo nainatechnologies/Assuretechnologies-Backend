@@ -7,8 +7,9 @@ function buildInvoicePdf(invoiceData, dataCallback, endCallback) {
   doc.on('end', endCallback);
 
   generateHeader(doc);
-  generateCustomerInformation(doc, invoiceData);
-  generateInvoiceTable(doc, invoiceData);
+  const customerBottomY = generateCustomerInformation(doc, invoiceData);
+  const tableTop = Math.max(310, (customerBottomY || 260) + 25);
+  generateInvoiceTable(doc, invoiceData, tableTop);
   generateFooter(doc);
 
   doc.end();
@@ -26,7 +27,7 @@ function generateHeader(doc) {
 }
 
 function generateCustomerInformation(doc, invoiceData) {
-  const customer = invoiceData.customer;
+  const customer = invoiceData.customer || {};
   
   doc
     .fillColor('#444444')
@@ -39,27 +40,53 @@ function generateCustomerInformation(doc, invoiceData) {
 
   doc
     .fontSize(10)
+    .font('Helvetica')
     .text('Invoice Number:', 50, customerInformationTop)
     .font('Helvetica-Bold')
-    .text(invoiceData.invoice_number, 150, customerInformationTop)
+    .text(invoiceData.invoice_number || 'N/A', 150, customerInformationTop)
     .font('Helvetica')
     .text('Invoice Date:', 50, customerInformationTop + 15)
-    .text(new Date().toLocaleDateString(), 150, customerInformationTop + 15)
+    .text(new Date().toLocaleDateString(), 150, customerInformationTop + 15);
     
-    .text('Bill To:', 300, customerInformationTop)
-    .font('Helvetica-Bold')
-    .text(customer.name, 300, customerInformationTop + 15)
-    .font('Helvetica')
-    .text(customer.address || 'Address not provided', 300, customerInformationTop + 30)
-    .text(customer.mobile, 300, customerInformationTop + 45)
-    .moveDown();
+  const billToX = 300;
+  const billToWidth = 240;
 
-  generateHr(doc, 260);
+  doc
+    .font('Helvetica')
+    .text('Bill To:', billToX, customerInformationTop);
+
+  let currentY = customerInformationTop + 15;
+
+  if (customer.name) {
+    doc.font('Helvetica-Bold').text(customer.name, billToX, currentY, { width: billToWidth });
+    currentY += doc.heightOfString(customer.name, { width: billToWidth }) + 4;
+  }
+
+  let addressText = customer.address || 'Address not provided';
+  if (typeof addressText === 'string' && addressText.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(addressText);
+      addressText = [parsed.line1, parsed.line2, parsed.city, parsed.state, parsed.country].filter(Boolean).join(', ');
+    } catch (e) {}
+  }
+
+  doc.font('Helvetica').text(addressText, billToX, currentY, { width: billToWidth });
+  currentY += doc.heightOfString(addressText, { width: billToWidth }) + 4;
+
+  if (customer.mobile) {
+    doc.text(customer.mobile, billToX, currentY, { width: billToWidth });
+    currentY += doc.heightOfString(customer.mobile, { width: billToWidth }) + 4;
+  }
+
+  const hrY = Math.max(260, currentY + 10);
+  generateHr(doc, hrY);
+
+  return hrY;
 }
 
-function generateInvoiceTable(doc, invoiceData) {
+function generateInvoiceTable(doc, invoiceData, startTop = 330) {
   let i;
-  const invoiceTableTop = 330;
+  const invoiceTableTop = startTop;
 
   doc.font('Helvetica-Bold');
   generateTableRow(
@@ -74,9 +101,32 @@ function generateInvoiceTable(doc, invoiceData) {
   generateHr(doc, invoiceTableTop + 20);
   doc.font('Helvetica');
 
-  let position = 0;
-  for (i = 0; i < invoiceData.items.length; i++) {
-    const item = invoiceData.items[i];
+  // Filter out any tax items from table rows
+  const allItems = invoiceData.items || [];
+  const taxItems = allItems.filter(item => item.item_type === 'Tax');
+  const items = allItems.filter(item => item.item_type !== 'Tax');
+
+  const subtotal = invoiceData.subtotal !== undefined
+    ? parseFloat(invoiceData.subtotal)
+    : items.reduce((acc, curr) => acc + (parseFloat(curr.price || 0) * parseInt(curr.qty || 1, 10)), 0);
+
+  const taxAmount = invoiceData.tax_amount !== undefined
+    ? parseFloat(invoiceData.tax_amount)
+    : (taxItems.length > 0
+        ? taxItems.reduce((acc, curr) => acc + (parseFloat(curr.price || 0) * parseInt(curr.qty || 1, 10)), 0)
+        : Math.max(0, parseFloat(invoiceData.total_amount || 0) - subtotal));
+
+  const totalAmount = invoiceData.total_amount !== undefined
+    ? parseFloat(invoiceData.total_amount)
+    : (subtotal + taxAmount);
+
+  const gstPercent = invoiceData.gst_percent !== undefined
+    ? parseFloat(invoiceData.gst_percent)
+    : 18;
+
+  let position = invoiceTableTop;
+  for (i = 0; i < items.length; i++) {
+    const item = items[i];
     position = invoiceTableTop + 30 + (i * 30);
     generateTableRow(
       doc,
@@ -91,28 +141,47 @@ function generateInvoiceTable(doc, invoiceData) {
     generateHr(doc, position + 20);
   }
 
-  const subtotalPosition = position + 40;
-  doc.font('Helvetica-Bold');
+  let summaryY = (items.length > 0 ? position : invoiceTableTop) + 30;
+
+  // 1. Subtotal (Taxable Amount)
+  doc.font('Helvetica');
   generateTableRow(
     doc,
-    subtotalPosition,
+    summaryY,
     '',
     '',
     'Subtotal',
     '',
-    formatCurrency(invoiceData.total_amount)
+    formatCurrency(subtotal)
   );
 
-  const totalPosition = subtotalPosition + 20;
+  // 2. GST Breakdown (if applicable)
+  if (taxAmount > 0.01) {
+    summaryY += 20;
+    const taxLabel = `GST (${gstPercent}%)`;
+    generateTableRow(
+      doc,
+      summaryY,
+      '',
+      '',
+      taxLabel,
+      '',
+      formatCurrency(taxAmount)
+    );
+  }
+
+  // 3. Grand Total
+  summaryY += 25;
+  generateHr(doc, summaryY - 5);
   doc.font('Helvetica-Bold');
   generateTableRow(
     doc,
-    totalPosition,
+    summaryY,
     '',
     '',
     'Total',
     '',
-    formatCurrency(invoiceData.total_amount)
+    formatCurrency(totalAmount)
   );
 }
 

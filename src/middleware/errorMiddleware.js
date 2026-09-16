@@ -11,7 +11,7 @@ module.exports = (err, req, res, next) => {
     }));
 
     const specificMessage = formattedErrors.length > 0
-      ? `Validation Error: ${formattedErrors[0].field ? formattedErrors[0].field + ' - ' : ''}${formattedErrors[0].message}`
+      ? formattedErrors.map(e => e.message).join(', ')
       : "Validation Error";
 
     return res.status(400).json({
@@ -21,21 +21,41 @@ module.exports = (err, req, res, next) => {
     });
   }
 
-  // Handle Database Unique Constraint Errors (e.g. duplicate mobile number)
+  // Handle Database Unique Constraint Errors (e.g. duplicate mobile number, name, email)
   if (err.name === 'SequelizeUniqueConstraintError') {
-    const duplicateFields = err.errors.map(e => e.path).join(', ');
+    const fields = (err.errors || []).map(e => e.path).filter(Boolean);
+    let message = 'This record already exists.';
+
+    if (fields.length > 0) {
+      if (fields.includes('email')) {
+        message = 'This email is already registered. Please use another email.';
+      } else if (fields.includes('mobile') || fields.includes('phone') || fields.includes('contact')) {
+        message = 'This mobile number is already registered.';
+      } else {
+        const cleanField = fields[0].replace(/_id$/i, '').replace(/_/g, ' ');
+        const formatted = cleanField.charAt(0).toUpperCase() + cleanField.slice(1);
+        message = `${formatted} already exists. Please choose a different one.`;
+      }
+    }
+
     return res.status(409).json({
       success: false,
-      message: `Duplicate entry detected for: ${duplicateFields}`
+      message,
+      fields
     });
   }
 
   // Handle generic Sequelize Validation Errors
   if (err.name === 'SequelizeValidationError') {
+    const formattedErrors = err.errors?.map(e => ({ field: e.path, message: e.message })) || [];
+    const specificMessage = formattedErrors.length > 0
+      ? formattedErrors.map(e => e.message).join(', ')
+      : "Database Validation Error";
+
     return res.status(400).json({
       success: false,
-      message: "Database Validation Error",
-      errors: err.errors.map(e => ({ field: e.path, message: e.message }))
+      message: specificMessage,
+      errors: formattedErrors
     });
   }
 

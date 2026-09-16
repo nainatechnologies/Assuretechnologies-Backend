@@ -202,24 +202,15 @@ const createServiceInvoice = async (invoiceData) => {
 
   // Generate PDF and upload to Cloudinary
   try {
-    const pdfInvoiceData = {
-      invoice_number: invoice.invoice_number,
-      customer: {
-        name: invoice.customer_name,
-        mobile: invoice.mobile,
-        address: invoice.address || 'Address not provided'
-      },
-      items: items && items.length > 0 ? items.map(item => ({
-        item_type: 'Item',
-        description: item.description || serviceName || 'Service',
-        price: parseFloat(item.rate || 0),
-        qty: parseInt(item.qty || 1, 10)
-      })) : [],
-      total_amount: parseFloat(invoice.grand_total)
-    };
+    const billableItems = items && items.length > 0 ? items.map(item => ({
+      item_type: 'Item',
+      description: item.description || serviceName || 'Service',
+      price: parseFloat(item.rate || 0),
+      qty: parseInt(item.qty || 1, 10)
+    })) : [];
 
     if (parseFloat(invoice.additional_charges) > 0) {
-      pdfInvoiceData.items.push({
+      billableItems.push({
         item_type: 'Additional Charges',
         description: invoice.additional_charges_desc || 'Extra Fees',
         price: parseFloat(invoice.additional_charges),
@@ -227,16 +218,22 @@ const createServiceInvoice = async (invoiceData) => {
       });
     }
 
-    const subtotal = pdfInvoiceData.items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+    const subtotal = billableItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
     const gstAmount = parseFloat(invoice.grand_total) - subtotal;
-    if (gstAmount > 0) {
-      pdfInvoiceData.items.push({
-        item_type: 'Tax',
-        description: `GST (${parseFloat(invoice.gst_percent)}%)`,
-        price: gstAmount,
-        qty: 1
-      });
-    }
+
+    const pdfInvoiceData = {
+      invoice_number: invoice.invoice_number,
+      customer: {
+        name: invoice.customer_name,
+        mobile: invoice.mobile,
+        address: invoice.address || 'Address not provided'
+      },
+      items: billableItems,
+      subtotal: subtotal,
+      gst_percent: parseFloat(invoice.gst_percent || 18),
+      tax_amount: gstAmount > 0.01 ? gstAmount : 0,
+      total_amount: parseFloat(invoice.grand_total)
+    };
 
     const pdfBuffer = await generateInvoicePdfBuffer(pdfInvoiceData);
     const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${invoice.invoice_number}`);
@@ -370,24 +367,15 @@ const generateServiceInvoicePdf = async (bookingId) => {
   }
 
   // Generate the PDF buffer
-  const invoiceData = {
-    invoice_number: savedInvoice.invoice_number,
-    customer: {
-      name: savedInvoice.customer_name,
-      mobile: savedInvoice.mobile,
-      address: savedInvoice.address || 'Address not provided'
-    },
-    items: (savedInvoice.items || []).map(item => ({
-      item_type: 'Item',
-      description: item.description,
-      price: parseFloat(item.rate),
-      qty: item.qty
-    })),
-    total_amount: parseFloat(savedInvoice.grand_total)
-  };
+  const billableItems = (savedInvoice.items || []).map(item => ({
+    item_type: 'Item',
+    description: item.description,
+    price: parseFloat(item.rate),
+    qty: item.qty
+  }));
 
   if (parseFloat(savedInvoice.additional_charges) > 0) {
-    invoiceData.items.push({
+    billableItems.push({
       item_type: 'Additional Charges',
       description: savedInvoice.additional_charges_desc || 'Extra Fees',
       price: parseFloat(savedInvoice.additional_charges),
@@ -395,17 +383,22 @@ const generateServiceInvoicePdf = async (bookingId) => {
     });
   }
 
-  const subtotal = invoiceData.items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+  const subtotal = billableItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
   const gstAmount = parseFloat(savedInvoice.grand_total) - subtotal;
-  
-  if (gstAmount > 0) {
-    invoiceData.items.push({
-      item_type: 'Tax',
-      description: `GST (${parseFloat(savedInvoice.gst_percent)}%)`,
-      price: gstAmount,
-      qty: 1
-    });
-  }
+
+  const invoiceData = {
+    invoice_number: savedInvoice.invoice_number,
+    customer: {
+      name: savedInvoice.customer_name,
+      mobile: savedInvoice.mobile,
+      address: savedInvoice.address || 'Address not provided'
+    },
+    items: billableItems,
+    subtotal: subtotal,
+    gst_percent: parseFloat(savedInvoice.gst_percent || 18),
+    tax_amount: gstAmount > 0.01 ? gstAmount : 0,
+    total_amount: parseFloat(savedInvoice.grand_total)
+  };
 
   const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
 
@@ -483,6 +476,16 @@ const autoGenerateProductInvoice = async (orderId) => {
   }
 
   try {
+    const billableItems = (order.items && order.items.length > 0) ? order.items.map(item => ({
+      item_type: 'Product',
+      description: (item.product ? item.product.name : (item.Product ? item.Product.name : 'Product')),
+      price: parseFloat(item.price || 0),
+      qty: parseInt(item.qty || 1, 10)
+    })) : [];
+
+    const subtotal = billableItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+    const gstAmount = grand_total - subtotal;
+
     const pdfInvoiceData = {
       invoice_number: invoice.invoice_number,
       customer: {
@@ -490,12 +493,10 @@ const autoGenerateProductInvoice = async (orderId) => {
         mobile: invoice.mobile,
         address: invoice.address || 'Address not provided'
       },
-      items: (order.items && order.items.length > 0) ? order.items.map(item => ({
-        item_type: 'Product',
-        description: (item.product ? item.product.name : (item.Product ? item.Product.name : 'Product')),
-        price: parseFloat(item.price || 0),
-        qty: parseInt(item.qty || 1, 10)
-      })) : [],
+      items: billableItems,
+      subtotal: subtotal,
+      gst_percent: parseFloat(invoice.gst_percent || 18),
+      tax_amount: gstAmount > 0.01 ? gstAmount : 0,
       total_amount: grand_total
     };
 
@@ -555,6 +556,16 @@ const generateOrderInvoicePdf = async (orderId) => {
     throw new AppError('Invoice not found for this order', 404);
   }
 
+  const billableItems = (invoice.items || []).map(item => ({
+    item_type: 'Product',
+    description: item.description,
+    price: parseFloat(item.rate),
+    qty: item.qty
+  }));
+
+  const subtotal = billableItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+  const gstAmount = parseFloat(invoice.grand_total) - subtotal;
+
   const invoiceData = {
     invoice_number: invoice.invoice_number,
     customer: {
@@ -562,25 +573,12 @@ const generateOrderInvoicePdf = async (orderId) => {
       mobile: invoice.mobile,
       address: invoice.address || 'Address not provided'
     },
-    items: (invoice.items || []).map(item => ({
-      item_type: 'Product',
-      description: item.description,
-      price: parseFloat(item.rate),
-      qty: item.qty
-    })),
+    items: billableItems,
+    subtotal: subtotal,
+    gst_percent: parseFloat(invoice.gst_percent || 18),
+    tax_amount: gstAmount > 0.01 ? gstAmount : 0,
     total_amount: parseFloat(invoice.grand_total)
   };
-
-  const subtotal = invoiceData.items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
-  const gstAmount = parseFloat(invoice.grand_total) - subtotal;
-  if (gstAmount > 0.01) {
-    invoiceData.items.push({
-      item_type: 'Tax',
-      description: `GST (${parseFloat(invoice.gst_percent || 18)}%)`,
-      price: gstAmount,
-      qty: 1
-    });
-  }
 
   const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
 
