@@ -34,8 +34,8 @@ const updateProfile = async (vendorId, updateData) => {
     ...(updateData.business_name && { business_name: updateData.business_name }),
     ...(updateData.gst_number && { gst_number: updateData.gst_number }),
     ...(updateData.address && { address: updateData.address }),
-    ...(updateData.pincode && { pincode: updateData.pincode }),
-    ...(updateData.business_description && { business_description: updateData.business_description })
+    ...(updateData.pincode !== undefined && { pincode: updateData.pincode || null }),
+    ...(updateData.business_description !== undefined && { business_description: updateData.business_description || null })
   };
 
   await vendor.update(safeData);
@@ -159,7 +159,11 @@ const getPayoutsOverview = async (vendorId) => {
   const unpaidItems = await OrderItem.findAll({
     where: {
       vendor_id: vendorId,
-      is_vendor_paid: false
+      is_vendor_paid: false,
+      [Op.or]: [
+        { status: 'COMPLETED' },
+        { status: null, '$order.status$': 'COMPLETED' }
+      ]
     },
     include: [{
       model: Order,
@@ -220,13 +224,13 @@ const getPayoutOrders = async (vendorId) => {
       quantity: item.qty,
       customer: item.order?.customer_name || 'Store Customer',
       customerNumber: item.order?.customer_contact || '—',
-      deliveryDate: item.order?.status === 'COMPLETED' 
-        ? (item.order.updatedAt ? item.order.updatedAt.toISOString().split('T')[0] : 'Delivered') 
+      deliveryDate: (item.status === 'COMPLETED' || item.order?.status === 'COMPLETED')
+        ? (item.updatedAt ? item.updatedAt.toISOString().split('T')[0] : 'Delivered') 
         : 'In Progress',
       amount: netAmount,
       grossAmount: subtotal,
       adminCommission: comm,
-      status: item.is_vendor_paid ? 'Completed' : 'Pending Admin Payout',
+      status: item.is_vendor_paid ? 'Completed' : ((item.status === 'COMPLETED' || item.order?.status === 'COMPLETED') ? 'Pending Admin Payout' : 'In Progress'),
       adminReceived: item.order?.payment_status === 'PAID',
       vendorReceived: item.is_vendor_paid,
       proofFileName: item.payout?.proof_image || null,

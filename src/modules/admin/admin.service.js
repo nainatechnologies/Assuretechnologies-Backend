@@ -482,14 +482,17 @@ const getPaymentSummary = async () => {
   const unpaidItems = await OrderItem.findAll({
     where: {
       vendor_id: { [Op.ne]: null },
-      is_vendor_paid: false
+      is_vendor_paid: false,
+      [Op.or]: [
+        { status: 'COMPLETED' },
+        { status: null, '$order.status$': 'COMPLETED' }
+      ]
     },
     include: [{
       model: Order,
       as: 'order',
       where: { 
-        payment_status: 'PAID',
-        status: 'COMPLETED'
+        payment_status: 'PAID'
       },
       attributes: ['id', 'payment_status', 'status']
     }]
@@ -636,15 +639,18 @@ const getPendingPayouts = async (search = '') => {
   const items = await OrderItem.findAll({
     where: {
       vendor_id: { [Op.ne]: null },
-      is_vendor_paid: false
+      is_vendor_paid: false,
+      [Op.or]: [
+        { status: 'COMPLETED' },
+        { status: null, '$order.status$': 'COMPLETED' }
+      ]
     },
     include: [
       {
         model: Order,
         as: 'order',
         where: { 
-          payment_status: 'PAID',
-          status: 'COMPLETED'
+          payment_status: 'PAID'
         },
         attributes: ['id', 'order_number', 'payment_status', 'status', 'createdAt', 'razorpay_payment_id']
       },
@@ -708,12 +714,16 @@ const getVendorLedger = async (search = '') => {
   const unpaidItems = await OrderItem.findAll({
     where: {
       vendor_id: { [Op.ne]: null },
-      is_vendor_paid: false
+      is_vendor_paid: false,
+      status: { [Op.ne]: 'CANCELLED' }
     },
     include: [
       {
         model: Order,
         as: 'order',
+        where: {
+          status: { [Op.ne]: 'CANCELLED' }
+        },
         attributes: ['id', 'order_number', 'payment_status', 'status', 'createdAt']
       },
       {
@@ -727,8 +737,9 @@ const getVendorLedger = async (search = '') => {
 
   let ledger = vendors.map(v => {
     const vItems = unpaidItems.filter(it => it.vendor_id === v.id);
-    const paidByCustomerItems = vItems.filter(it => it.order?.payment_status === 'PAID' && it.order?.status === 'COMPLETED');
-    const unpaidByCustomerItems = vItems.filter(it => !(it.order?.payment_status === 'PAID' && it.order?.status === 'COMPLETED'));
+    const isItemDelivered = (it) => it.status === 'COMPLETED' || (!it.status && it.order?.status === 'COMPLETED');
+    const paidByCustomerItems = vItems.filter(it => it.order?.payment_status === 'PAID' && isItemDelivered(it));
+    const unpaidByCustomerItems = vItems.filter(it => !(it.order?.payment_status === 'PAID' && isItemDelivered(it)));
 
     const totalPendingCustomerPaid = paidByCustomerItems.reduce((sum, it) => {
       const sub = parseFloat(it.subtotal || 0);
