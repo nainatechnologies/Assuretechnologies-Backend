@@ -101,28 +101,10 @@ function generateInvoiceTable(doc, invoiceData, startTop = 330) {
   generateHr(doc, invoiceTableTop + 20);
   doc.font('Helvetica');
 
-  // Filter out any tax items from table rows
+  // Filter out any tax items from table rows so tax has no quantity column
   const allItems = invoiceData.items || [];
-  const taxItems = allItems.filter(item => item.item_type === 'Tax');
+  const taxItem = allItems.find(item => item.item_type === 'Tax');
   const items = allItems.filter(item => item.item_type !== 'Tax');
-
-  const subtotal = invoiceData.subtotal !== undefined
-    ? parseFloat(invoiceData.subtotal)
-    : items.reduce((acc, curr) => acc + (parseFloat(curr.price || 0) * parseInt(curr.qty || 1, 10)), 0);
-
-  const taxAmount = invoiceData.tax_amount !== undefined
-    ? parseFloat(invoiceData.tax_amount)
-    : (taxItems.length > 0
-        ? taxItems.reduce((acc, curr) => acc + (parseFloat(curr.price || 0) * parseInt(curr.qty || 1, 10)), 0)
-        : Math.max(0, parseFloat(invoiceData.total_amount || 0) - subtotal));
-
-  const totalAmount = invoiceData.total_amount !== undefined
-    ? parseFloat(invoiceData.total_amount)
-    : (subtotal + taxAmount);
-
-  const gstPercent = invoiceData.gst_percent !== undefined
-    ? parseFloat(invoiceData.gst_percent)
-    : 18;
 
   let position = invoiceTableTop;
   for (i = 0; i < items.length; i++) {
@@ -134,17 +116,33 @@ function generateInvoiceTable(doc, invoiceData, startTop = 330) {
       item.item_type || 'Service',
       item.description,
       formatCurrency(item.price),
-      item.qty,
-      formatCurrency(item.price * item.qty)
+      String(item.qty != null ? item.qty : ''),
+      formatCurrency(item.price * (item.qty || 1))
     );
 
     generateHr(doc, position + 20);
   }
 
-  let summaryY = (items.length > 0 ? position : invoiceTableTop) + 30;
+  const subtotal = invoiceData.subtotal !== undefined
+    ? parseFloat(invoiceData.subtotal)
+    : items.reduce((acc, curr) => acc + (parseFloat(curr.price || 0) * parseInt(curr.qty || 1, 10)), 0);
+
+  const taxAmount = invoiceData.tax_amount !== undefined
+    ? parseFloat(invoiceData.tax_amount)
+    : (taxItem ? parseFloat(taxItem.price || 0) : Math.max(0, parseFloat(invoiceData.total_amount || 0) - subtotal));
+
+  const totalAmount = invoiceData.total_amount !== undefined
+    ? parseFloat(invoiceData.total_amount)
+    : (subtotal + taxAmount);
+
+  const gstPercent = invoiceData.gst_percent !== undefined
+    ? parseFloat(invoiceData.gst_percent)
+    : 18;
+
+  let summaryY = (items.length > 0 ? position : invoiceTableTop) + 35;
 
   // 1. Subtotal (Taxable Amount)
-  doc.font('Helvetica');
+  doc.font('Helvetica-Bold');
   generateTableRow(
     doc,
     summaryY,
@@ -155,17 +153,18 @@ function generateInvoiceTable(doc, invoiceData, startTop = 330) {
     formatCurrency(subtotal)
   );
 
-  // 2. GST Breakdown (if applicable)
-  if (taxAmount > 0.01) {
+  // 2. GST Breakdown (if applicable, without any quantity)
+  if (taxAmount > 0.001) {
     summaryY += 20;
-    const taxLabel = `GST (${gstPercent}%)`;
+    doc.font('Helvetica');
+    const taxLabel = taxItem?.description || `GST (${gstPercent}%)`;
     generateTableRow(
       doc,
       summaryY,
       '',
       '',
       taxLabel,
-      '',
+      '', // No quantity for tax!
       formatCurrency(taxAmount)
     );
   }
@@ -188,10 +187,11 @@ function generateInvoiceTable(doc, invoiceData, startTop = 330) {
 function generateFooter(doc) {
   doc
     .fontSize(10)
+    .fillColor('#666666')
     .text(
-      'Payment is due within 15 days. Thank you for your business.',
+      'Thank you for your business.',
       50,
-      780,
+      700,
       { align: 'center', width: 500 }
     );
 }
