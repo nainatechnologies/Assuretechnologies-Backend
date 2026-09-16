@@ -319,7 +319,7 @@ const getOrders = async (user, query = {}) => {
   if (user && user.role === 'customer') {
     whereClause.customer_id = user.id;
   } else if (user && (user.role === 'admin' || user.role === 'vendor')) {
-    whereClause.payment_status = 'PAID';
+    whereClause.payment_status = { [Op.in]: ['PAID', 'REFUND_PENDING', 'REFUNDED'] };
   }
 
   if (query.search) {
@@ -471,7 +471,10 @@ const getOrderById = async (orderId, user = null) => {
 const splitOrderItem = async (orderId, itemId, splitData) => {
   const { newVendorId, qtyToTransfer } = splitData;
 
-  const order = await Order.findOne({ where: { order_number: orderId } });
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+  const order = await Order.findOne({ 
+    where: isUuid ? { [Op.or]: [{ id: orderId }, { order_number: orderId }] } : { order_number: orderId }
+  });
   if (!order) {
     throw new AppError('Order not found', 404);
   }
@@ -484,8 +487,8 @@ const splitOrderItem = async (orderId, itemId, splitData) => {
     throw new AppError('Order item not found', 404);
   }
 
-  if (qtyToTransfer >= item.qty) {
-    throw new AppError('Quantity to transfer must be less than current item quantity', 400);
+  if (qtyToTransfer > item.qty || qtyToTransfer <= 0) {
+    throw new AppError(`Quantity to transfer must be between 1 and ${item.qty}`, 400);
   }
 
   if (newVendorId) {
@@ -495,6 +498,14 @@ const splitOrderItem = async (orderId, itemId, splitData) => {
     }
   }
 
+  // If transferring the entire quantity, directly reassign vendor on existing item
+  if (qtyToTransfer === item.qty) {
+    item.vendor_id = newVendorId || null;
+    await item.save();
+    return { message: 'Order item reassigned successfully', originalItem: item, newItem: item };
+  }
+
+  // Otherwise, split item: reduce original quantity and create a new item for transferred quantity
   const remainingQty = item.qty - qtyToTransfer;
   item.qty = remainingQty;
   item.subtotal = item.price * remainingQty;
@@ -507,7 +518,8 @@ const splitOrderItem = async (orderId, itemId, splitData) => {
     qty: qtyToTransfer,
     price: item.price,
     admin_commission: item.admin_commission,
-    subtotal: item.price * qtyToTransfer
+    subtotal: item.price * qtyToTransfer,
+    status: item.status
   });
 
   return { message: 'Order item split successfully', originalItem: item, newItem };
