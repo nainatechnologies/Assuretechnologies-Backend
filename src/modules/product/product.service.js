@@ -42,10 +42,16 @@ const getProducts = async (filters, pagination, user) => {
   }
 
   if (search) {
-    whereClause[Op.or] = [
-      { name: { [Op.like]: `%${search}%` } },
-      { category: { [Op.like]: `%${search}%` } }
-    ];
+    const tokens = search.trim().split(/\s+/).filter(Boolean).slice(0, 8);
+    if (tokens.length > 0) {
+      whereClause[Op.and] = tokens.map(token => ({
+        [Op.or]: [
+          { name: { [Op.like]: `%${token}%` } },
+          { category: { [Op.like]: `%${token}%` } },
+          { description: { [Op.like]: `%${token}%` } }
+        ]
+      }));
+    }
   }
 
   if (stockStatus === 'In Stock') {
@@ -58,12 +64,14 @@ const getProducts = async (filters, pagination, user) => {
 
   let orderClause = [['auto_id', 'DESC']];
 
-  if (sort === 'price-low') {
+  if (sort === 'price-low' || sort === 'price-asc') {
     orderClause = [[Product.sequelize.literal('(base_price - (base_price * (COALESCE(discount, 0) / 100)))'), 'ASC']];
-  } else if (sort === 'price-high') {
+  } else if (sort === 'price-high' || sort === 'price-desc') {
     orderClause = [[Product.sequelize.literal('(base_price - (base_price * (COALESCE(discount, 0) / 100)))'), 'DESC']];
   } else if (sort === 'discount') {
     orderClause = [['discount', 'DESC']];
+  } else if (sort === 'name' || sort === 'name-asc') {
+    orderClause = [['name', 'ASC']];
   }
 
   const offset = (page - 1) * limit;

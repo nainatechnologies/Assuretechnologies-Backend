@@ -53,7 +53,14 @@ const getPublicServices = async ({ search, category_id, service_owner_type, page
   const offset = (page - 1) * limit;
   const whereClause = { is_active: true }; // Force only active services
 
-  if (search) whereClause.name = { [Op.like]: `%${search}%` };
+  if (search) {
+    const tokens = search.trim().split(/\s+/).filter(Boolean).slice(0, 8);
+    if (tokens.length > 0) {
+      whereClause[Op.and] = tokens.map(token => ({
+        name: { [Op.like]: `%${token}%` }
+      }));
+    }
+  }
   if (category_id) whereClause.category_id = category_id;
   if (service_owner_type) whereClause.service_owner_type = service_owner_type;
 

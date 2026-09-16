@@ -54,6 +54,10 @@ const OrderItem = sequelize.define('OrderItem', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false
   },
+  status: {
+    type: DataTypes.ENUM('NEW', 'ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED'),
+    defaultValue: 'NEW'
+  },
   transport_name: {
     type: DataTypes.STRING,
     allowNull: true

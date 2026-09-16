@@ -16,7 +16,10 @@ const createOrderSchema = z.object({
 
 const updateOrderStatusSchema = z.object({
   status: z.enum(['NEW', 'ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED']).optional(),
-  payment_status: z.enum(['PENDING', 'PAID', 'FAILED', 'REFUNDED']).optional()
+  payment_status: z.enum(['PENDING', 'PAID', 'FAILED', 'REFUNDED']).optional(),
+  reason: z.string().optional().nullable(),
+  vendorId: z.string().uuid('Invalid vendor ID').optional().nullable(),
+  target: z.enum(['admin', 'vendor', 'all']).optional()
 }).refine(data => data.status !== undefined || data.payment_status !== undefined, {
   message: 'At least one of status or payment_status must be provided'
 });
@@ -24,7 +27,8 @@ const updateOrderStatusSchema = z.object({
 const updateOrderTrackingSchema = z.object({
   transportName: z.string().min(1, 'Transport name is required'),
   trackingId: z.string().min(1, 'Tracking ID is required'),
-  trackUrl: z.string().optional().nullable()
+  trackUrl: z.string().optional().nullable(),
+  vendorId: z.string().uuid('Invalid vendor ID').optional().nullable()
 });
 
 const splitOrderItemSchema = z.object({

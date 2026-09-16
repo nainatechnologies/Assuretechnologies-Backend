@@ -255,7 +255,8 @@ const createOrder = async (orderData, user) => {
         qty: item.qty,
         price: finalPrice,
         admin_commission: product.admin_commission,
-        subtotal
+        subtotal,
+        status: 'NEW'
       });
     }
 
@@ -321,10 +322,6 @@ const getOrders = async (user, query = {}) => {
     whereClause.payment_status = 'PAID';
   }
 
-  if (query.status && query.status !== 'All') {
-    whereClause.status = query.status.toUpperCase();
-  }
-
   if (query.search) {
     whereClause.order_number = { [Op.like]: `%${query.search.trim()}%` };
   }
@@ -334,6 +331,11 @@ const getOrders = async (user, query = {}) => {
   if (user && user.role === 'vendor') {
     itemWhereClause = { vendor_id: user.id };
     requiredVendor = true;
+    if (query.status && query.status !== 'All') {
+      itemWhereClause.status = query.status.toUpperCase();
+    }
+  } else if (query.status && query.status !== 'All') {
+    whereClause.status = query.status.toUpperCase();
   }
 
   const page = query.page ? parseInt(query.page) : null;
@@ -375,8 +377,19 @@ const getOrders = async (user, query = {}) => {
     findOptions.limit = limit;
     findOptions.offset = offset;
     const { count, rows } = await Order.findAndCountAll(findOptions);
+    let mappedRows = rows;
+    if (user && user.role === 'vendor') {
+      mappedRows = rows.map(r => {
+        const plain = r.get ? r.get({ plain: true }) : (r.toJSON ? r.toJSON() : r);
+        const vItem = plain.items?.find(it => it.transport_name || it.tracking_id) || plain.items?.[0];
+        plain.transport_name = vItem?.transport_name || null;
+        plain.tracking_id = vItem?.tracking_id || null;
+        plain.tracking_url = vItem?.tracking_url || null;
+        return plain;
+      });
+    }
     return {
-      orders: rows,
+      orders: mappedRows,
       pagination: {
         page: page || 1,
         limit,
@@ -387,6 +400,16 @@ const getOrders = async (user, query = {}) => {
   }
 
   const orders = await Order.findAll(findOptions);
+  if (user && user.role === 'vendor') {
+    return orders.map(r => {
+      const plain = r.get ? r.get({ plain: true }) : (r.toJSON ? r.toJSON() : r);
+      const vItem = plain.items?.find(it => it.transport_name || it.tracking_id) || plain.items?.[0];
+      plain.transport_name = vItem?.transport_name || null;
+      plain.tracking_id = vItem?.tracking_id || null;
+      plain.tracking_url = vItem?.tracking_url || null;
+      return plain;
+    });
+  }
   return orders;
 };
 
@@ -434,6 +457,10 @@ const getOrderById = async (orderId, user = null) => {
       }
       const orderJson = order.toJSON ? order.toJSON() : JSON.parse(JSON.stringify(order));
       orderJson.items = vendorItems.map(item => item.toJSON ? item.toJSON() : item);
+      const firstItem = orderJson.items[0];
+      orderJson.transport_name = firstItem?.transport_name || null;
+      orderJson.tracking_id = firstItem?.tracking_id || null;
+      orderJson.tracking_url = firstItem?.tracking_url || null;
       return orderJson;
     }
   }
@@ -487,8 +514,9 @@ const splitOrderItem = async (orderId, itemId, splitData) => {
 };
 
 const updateOrderStatus = async (orderId, updateData, user = null) => {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
   const order = await Order.findOne({ 
-    where: { order_number: orderId },
+    where: isUuid ? { [Op.or]: [{ id: orderId }, { order_number: orderId }] } : { order_number: orderId },
     include: [{ model: OrderItem, as: 'items' }]
   });
   if (!order) { throw new AppError('Order not found', 404); }
@@ -522,7 +550,118 @@ const updateOrderStatus = async (orderId, updateData, user = null) => {
     throw new AppError('Cannot accept or dispatch an order with unpaid payment status', 400);
   }
 
-  if (updateData.status) { order.status = updateData.status; }
+  if (updateData.status) {
+    let itemWhere = { order_id: order.id };
+    if (user && user.role === 'vendor') {
+      itemWhere.vendor_id = user.id;
+    } else if (updateData.vendorId) {
+      itemWhere.vendor_id = updateData.vendorId;
+    } else if (updateData.target === 'vendor') {
+      itemWhere.vendor_id = { [Op.ne]: null };
+    } else if (updateData.target === 'all') {
+      itemWhere = { order_id: order.id };
+    } else {
+      // Default for Admin Orders panel: only update Admin items
+      itemWhere.vendor_id = null;
+    }
+    const targetedItems = await OrderItem.findAll({ where: itemWhere });
+
+    if (updateData.status === 'CANCELLED') {
+      const itemsToCancel = targetedItems.filter(it => it.status !== 'CANCELLED');
+      if (itemsToCancel.length > 0) {
+        await OrderItem.update({ status: 'CANCELLED' }, { where: { id: itemsToCancel.map(i => i.id) } });
+
+        const wasPaid = order.payment_status === 'PAID' || order.payment_status === 'REFUND_PENDING';
+        if (wasPaid) {
+          const cancelledSubtotal = itemsToCancel.reduce((sum, it) => sum + parseFloat(it.subtotal || 0), 0);
+          const cancelledTax = order.subtotal_amount > 0
+            ? (cancelledSubtotal * (parseFloat(order.tax_amount || 0) / parseFloat(order.subtotal_amount)))
+            : (cancelledSubtotal * 0.18);
+          const cancelledTotalWithTax = parseFloat((cancelledSubtotal + cancelledTax).toFixed(2));
+
+          let entityName = 'Admin';
+          if (user && user.role === 'vendor') {
+            const v = await Vendor.findByPk(user.id);
+            entityName = v?.business_name || v?.full_name || 'Vendor';
+          } else if (updateData.vendorId) {
+            const v = await Vendor.findByPk(updateData.vendorId);
+            entityName = v?.business_name || v?.full_name || 'Vendor';
+          }
+
+          const reasonNote = updateData.reason ? updateData.reason.trim() : 'Item unavailable';
+          const formattedReason = `Rejected by ${entityName} (${reasonNote})`;
+
+          // Check if all items in the order are now cancelled
+          const allItemsAfter = await OrderItem.findAll({ where: { order_id: order.id } });
+          const allCancelled = allItemsAfter.every(i => i.status === 'CANCELLED');
+
+          let newRefundAmount;
+          if (allCancelled) {
+            newRefundAmount = parseFloat(order.total_amount || 0);
+          } else {
+            newRefundAmount = Math.min(
+              parseFloat(order.total_amount || 0),
+              parseFloat((parseFloat(order.refund_amount || 0) + cancelledTotalWithTax).toFixed(2))
+            );
+          }
+
+          order.payment_status = 'REFUND_PENDING';
+          order.refund_status = 'REQUESTED';
+          order.refund_amount = newRefundAmount;
+          order.refund_reason = formattedReason;
+
+          // Alert Admin about queued refund
+          try {
+            const notificationService = require('../notification/notification.service');
+            notificationService.createNotification({
+              title: 'Refund Queued: Item Rejected',
+              message: `${formattedReason}. Refund of ₹${cancelledTotalWithTax.toFixed(2)} (incl. GST) queued for Order #${order.order_number}`,
+              type: 'REFUND',
+              action_url: '/admin/payments?tab=refunds',
+              target_role: 'admin',
+              metadata: { order_id: order.id, order_number: order.order_number, refund_amount: newRefundAmount }
+            });
+          } catch (e) {
+            console.error('Failed to dispatch refund notification:', e);
+          }
+
+          // Restore inventory stock for newly cancelled items only
+          try {
+            for (const it of itemsToCancel) {
+              const product = await Product.findByPk(it.product_id);
+              if (product && product.stock !== undefined && product.stock !== null) {
+                product.stock += parseInt(it.qty, 10) || 0;
+                await product.save();
+              }
+            }
+          } catch (stockErr) {
+            console.error('Failed to restore stock for cancelled items:', stockErr);
+          }
+        }
+      }
+    } else {
+      await OrderItem.update({ status: updateData.status }, { where: itemWhere });
+    }
+
+    // Sync parent order.status as an aggregate
+    const allItems = await OrderItem.findAll({ where: { order_id: order.id } });
+    const statuses = allItems.map(i => i.status);
+    if (statuses.length > 0) {
+      if (statuses.every(s => s === 'COMPLETED')) {
+        order.status = 'COMPLETED';
+      } else if (statuses.every(s => s === 'CANCELLED')) {
+        order.status = 'CANCELLED';
+      } else if (statuses.some(s => s === 'OUT_FOR_DELIVERY')) {
+        order.status = 'OUT_FOR_DELIVERY';
+      } else if (statuses.some(s => s === 'ACCEPTED')) {
+        order.status = 'ACCEPTED';
+      } else {
+        order.status = 'NEW';
+      }
+    } else {
+      order.status = updateData.status;
+    }
+  }
   await order.save();
 
   if (updateData.status === 'COMPLETED') {
@@ -761,7 +900,10 @@ const rejectRefund = async (orderId, rejectionData, adminUser) => {
 };
 
 const updateOrderTracking = async (orderId, trackingData, user) => {
-  const order = await Order.findOne({ where: { order_number: orderId } });
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+  const order = await Order.findOne({ 
+    where: isUuid ? { [Op.or]: [{ id: orderId }, { order_number: orderId }] } : { order_number: orderId } 
+  });
   if (!order) { throw new AppError('Order not found', 404); }
 
   if (user.role === 'vendor') {
@@ -793,10 +935,18 @@ const updateOrderTracking = async (orderId, trackingData, user) => {
           return item.save();
         }));
       }
-      order.transport_name = trackingData.transportName;
-      order.tracking_id = trackingData.trackingId;
-      order.tracking_url = trackingData.trackUrl;
-      await order.save();
+      const vendorItems = await OrderItem.findAll({ where: { order_id: order.id, vendor_id: { [Op.ne]: null } } });
+      if (!vendorItems.length) {
+        order.transport_name = trackingData.transportName;
+        order.tracking_id = trackingData.trackingId;
+        order.tracking_url = trackingData.trackUrl;
+        await order.save();
+      } else {
+        order.transport_name = null;
+        order.tracking_id = null;
+        order.tracking_url = null;
+        await order.save();
+      }
     }
   } else {
     throw new AppError('Not authorized to update tracking', 403);
