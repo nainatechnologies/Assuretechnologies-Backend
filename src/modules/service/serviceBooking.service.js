@@ -589,6 +589,30 @@ const updateBookingStatus = async (booking_id, status, reason) => {
   if (status === 'CANCELLED') {
     booking.cancelled_by = 'ADMIN';
     booking.cancellation_reason = reason || 'Unable to fulfill booking at scheduled time';
+
+    if (booking.order_id) {
+      const order = await Order.findByPk(booking.order_id);
+      if (order && (order.payment_status === 'PAID' || booking.prebooking_paid)) {
+        order.status = 'CANCELLED';
+        order.payment_status = 'REFUND_PENDING';
+        order.refund_status = 'REQUESTED';
+        order.refund_amount = order.total_amount;
+        order.refund_reason = reason ? `Rejected by Admin: ${reason}` : 'Service rejected by Admin';
+        await order.save();
+
+        try {
+          const notificationService = require('../notification/notification.service');
+          notificationService.createNotification({
+            title: 'Service Refund Requested',
+            message: `Admin rejected Service Booking #${order.order_number}. Refund of ₹${order.total_amount} requested.`,
+            type: 'REFUND',
+            action_url: '/admin/payments?tab=refunds',
+            target_role: 'admin',
+            metadata: { order_number: order.order_number, refund_amount: order.total_amount }
+          });
+        } catch (e) {}
+      }
+    }
   }
 
   await booking.save();
