@@ -13,6 +13,9 @@ const allowedOrigins = [
   'http://localhost:5174', // Vendor
   'http://localhost:5175', // Technician
   'http://localhost:5176', // Partner
+  'https://localhost',     // Capacitor Android
+  'http://localhost',      // Capacitor Android alternate
+  'capacitor://localhost', // Capacitor iOS
 ];
 
 // Middleware
@@ -21,11 +24,16 @@ app.use(cors({
   origin: function (origin, callback) {
     // allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+    if (
+      allowedOrigins.indexOf(origin) !== -1 ||
+      origin.startsWith('capacitor://') ||
+      origin.startsWith('http://192.168.') ||
+      origin.startsWith('http://10.0.2.2')
+    ) {
+      return callback(null, true);
     }
-    return callback(null, true);
+    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+    return callback(new Error(msg), false);
   },
   credentials: true
 }));

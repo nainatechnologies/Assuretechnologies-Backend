@@ -385,6 +385,11 @@ const getOrders = async (user, query = {}) => {
         plain.transport_name = vItem?.transport_name || null;
         plain.tracking_id = vItem?.tracking_id || null;
         plain.tracking_url = vItem?.tracking_url || null;
+        plain.customer_name = null;
+        plain.customer_contact = null;
+        plain.company_name = null;
+        plain.gst_number = null;
+        plain.customer = null;
         return plain;
       });
     }
@@ -407,6 +412,11 @@ const getOrders = async (user, query = {}) => {
       plain.transport_name = vItem?.transport_name || null;
       plain.tracking_id = vItem?.tracking_id || null;
       plain.tracking_url = vItem?.tracking_url || null;
+      plain.customer_name = null;
+      plain.customer_contact = null;
+      plain.company_name = null;
+      plain.gst_number = null;
+      plain.customer = null;
       return plain;
     });
   }
@@ -461,6 +471,11 @@ const getOrderById = async (orderId, user = null) => {
       orderJson.transport_name = firstItem?.transport_name || null;
       orderJson.tracking_id = firstItem?.tracking_id || null;
       orderJson.tracking_url = firstItem?.tracking_url || null;
+      orderJson.customer_name = null;
+      orderJson.customer_contact = null;
+      orderJson.company_name = null;
+      orderJson.gst_number = null;
+      orderJson.customer = null;
       return orderJson;
     }
   }
