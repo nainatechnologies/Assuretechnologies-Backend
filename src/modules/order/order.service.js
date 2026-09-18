@@ -1273,7 +1273,10 @@ const verifyBalancePayment = async (orderId, paymentData, user) => {
   try {
     const booking = await ServiceBooking.findOne({ where: { order_id: order.id } });
     if (booking) {
-      if (booking.auto_id) possibleOrderIds.push(`BKG-${1000 + booking.auto_id}`);
+      if (booking.auto_id) {
+        possibleOrderIds.push(`BKG-${1000 + booking.auto_id}`);
+        possibleOrderIds.push(`SR-${1000 + booking.auto_id}`);
+      }
       if (booking.display_id) possibleOrderIds.push(booking.display_id);
       possibleOrderIds.push(booking.id);
     }

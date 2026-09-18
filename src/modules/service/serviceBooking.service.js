@@ -57,7 +57,7 @@ const createBooking = async (bookingData, user) => {
   const timePart = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
   const randomPart = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
 
-  const order_number = 'SBK' + datePart + timePart + randomPart;
+  const order_number = 'SR' + datePart + timePart + randomPart;
 
   const subtotal_amount = Math.round(final_price * 100) / 100;
   const tax_amount = Math.round(subtotal_amount * 0.18 * 100) / 100;
@@ -174,15 +174,20 @@ const getCustomerBookings = async (user, booking_id = null) => {
   });
 
   const { Invoice } = require('../../models');
-  const displayIds = bookings.map(b => b.display_id);
+  const searchInvoiceIds = bookings.flatMap(b => [
+    b.display_id,
+    b.auto_id ? `BKG-${b.auto_id + 1000}` : null
+  ]).filter(Boolean);
+
   const existingInvoices = await Invoice.findAll({
-    where: { order_id: displayIds, type: 'SERVICE' },
+    where: { order_id: searchInvoiceIds, type: 'SERVICE' },
     attributes: ['order_id']
   });
-  const existingInvoiceIds = existingInvoices.map(i => i.order_id);
+  const existingInvoiceIds = new Set(existingInvoices.map(i => i.order_id));
 
   for (const b of bookings) {
-    b.dataValues.has_invoice = existingInvoiceIds.includes(b.display_id);
+    const legacyBkgId = b.auto_id ? `BKG-${b.auto_id + 1000}` : null;
+    b.dataValues.has_invoice = existingInvoiceIds.has(b.display_id) || (legacyBkgId ? existingInvoiceIds.has(legacyBkgId) : false);
   }
 
   return booking_id ? (bookings[0] || null) : bookings;
@@ -465,7 +470,7 @@ const verifyPayment = async (payloadOrBookingId, paymentDataOrUser, possibleUser
     const datePart = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
     const timePart = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
     const randomPart = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-    const order_number = 'SBK' + datePart + timePart + randomPart;
+    const order_number = 'SR' + datePart + timePart + randomPart;
 
     const Customer = require('../customer/customer.model');
     const customer = customer_id ? await Customer.findByPk(customer_id) : null;

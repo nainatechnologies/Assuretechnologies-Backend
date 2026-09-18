@@ -88,7 +88,7 @@ const getAdminInvoices = async () => {
 
   const formatted = await Promise.all(invoices.map(async (inv) => {
     const json = inv.toJSON ? inv.toJSON() : inv;
-    if (json.type === 'SERVICE' && json.order_id && json.order_id.startsWith('BKG-')) {
+    if (json.type === 'SERVICE' && json.order_id && (json.order_id.startsWith('BKG-') || json.order_id.startsWith('SR-'))) {
       try {
         const autoId = parseInt(json.order_id.split('-')[1]) - 1000;
         const booking = await ServiceBooking.findOne({
@@ -311,8 +311,9 @@ const generateServiceInvoicePdf = async (bookingId) => {
   let booking = null;
   const bookingIdStr = String(bookingId || '').trim();
 
-  if (bookingIdStr.startsWith('BKG-')) {
-    const autoId = parseInt(bookingIdStr.replace('BKG-', ''), 10) - 1000;
+  if (bookingIdStr.startsWith('BKG-') || bookingIdStr.startsWith('SR-')) {
+    const rawNumber = bookingIdStr.startsWith('SR-') ? bookingIdStr.replace('SR-', '') : bookingIdStr.replace('BKG-', '');
+    const autoId = parseInt(rawNumber, 10) - 1000;
     if (!isNaN(autoId)) {
       booking = await ServiceBooking.findOne({
         where: { auto_id: autoId },
@@ -348,7 +349,7 @@ const generateServiceInvoicePdf = async (bookingId) => {
     }
   }
 
-  const displayId = booking ? `BKG-${booking.auto_id + 1000}` : bookingIdStr;
+  const displayId = booking ? (booking.display_id || `SR-${booking.auto_id + 1000}`) : bookingIdStr;
 
   let savedInvoice = await Invoice.findOne({
     where: { order_id: displayId, type: 'SERVICE' },
@@ -358,6 +359,15 @@ const generateServiceInvoicePdf = async (bookingId) => {
   if (!savedInvoice && bookingIdStr !== displayId) {
     savedInvoice = await Invoice.findOne({
       where: { order_id: bookingIdStr, type: 'SERVICE' },
+      include: [{ model: InvoiceItem, as: 'items' }]
+    });
+  }
+
+  if (!savedInvoice && booking && booking.auto_id) {
+    // Dual prefix fallback (check alternate prefix)
+    const altDisplayId = displayId.startsWith('SR-') ? `BKG-${booking.auto_id + 1000}` : `SR-${booking.auto_id + 1000}`;
+    savedInvoice = await Invoice.findOne({
+      where: { order_id: altDisplayId, type: 'SERVICE' },
       include: [{ model: InvoiceItem, as: 'items' }]
     });
   }

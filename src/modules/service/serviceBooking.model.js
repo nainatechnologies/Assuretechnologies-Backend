@@ -21,7 +21,9 @@ const ServiceBooking = sequelize.define('ServiceBooking', {
   display_id: {
     type: DataTypes.VIRTUAL,
     get() {
-      return `BKG-${this.getDataValue('auto_id') + 1000}`;
+      const autoId = this.getDataValue('auto_id');
+      if (!autoId) return null;
+      return `SR-${autoId + 1000}`;
     }
   },
   order_id: {
