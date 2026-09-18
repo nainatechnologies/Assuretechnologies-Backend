@@ -21,9 +21,64 @@ function generateHeader(doc) {
     .fontSize(20)
     .text('Assure Technologies', 50, 57)
     .fontSize(10)
-    .text('123 Tech Avenue', 200, 65, { align: 'right' })
-    .text('Hyderabad, Telangana, 500001', 200, 80, { align: 'right' })
+    .text('Amaravathi', 200, 65, { align: 'right' })
+    .text('Guntur, Andhra Pradesh, 522001', 200, 80, { align: 'right' })
     .moveDown();
+}
+
+function formatInvoiceAddressLines(rawAddress) {
+  if (!rawAddress || rawAddress === 'Address not provided' || rawAddress === 'N/A') {
+    return ['Address not provided'];
+  }
+
+  if (typeof rawAddress === 'string' && rawAddress.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(rawAddress);
+      const line1 = [parsed.line1 || parsed.addressLine1, parsed.line2 || parsed.addressLine2, parsed.landmark].map(s => s && String(s).trim()).filter(Boolean).join(', ');
+      const line2Parts = [parsed.city, parsed.state].map(s => s && String(s).trim()).filter(Boolean);
+      const pin = parsed.pincode || parsed.postalCode || parsed.pin;
+      const line2 = line2Parts.join(', ') + (pin ? ` - ${pin}` : '');
+      return [line1, line2].filter(Boolean);
+    } catch (e) {}
+  }
+
+  const rawParts = String(rawAddress)
+    .replace(/\r\n/g, '\n')
+    .split(/[\n,]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (rawParts.length === 0) {
+    return ['Address not provided'];
+  }
+
+  const fullText = rawParts.join(', ');
+  const pinMatches = fullText.match(/\b(\d{6})\b/g);
+  const pincode = pinMatches ? pinMatches[pinMatches.length - 1] : null;
+
+  const cleanParts = rawParts
+    .map(p => p.replace(/[-–—]?\s*\b\d{6}\b/g, '').trim())
+    .filter(Boolean);
+
+  if (cleanParts.length === 0) {
+    return [pincode ? `PIN: ${pincode}` : fullText];
+  }
+
+  if (cleanParts.length === 1) {
+    return [cleanParts[0] + (pincode ? ` - ${pincode}` : '')];
+  }
+
+  if (cleanParts.length === 2) {
+    return [
+      cleanParts[0],
+      cleanParts[1] + (pincode ? ` - ${pincode}` : '')
+    ];
+  }
+
+  const street = cleanParts.slice(0, -2).join(', ');
+  const cityState = cleanParts.slice(-2).join(', ') + (pincode ? ` - ${pincode}` : '');
+
+  return [street, cityState].filter(Boolean);
 }
 
 function generateCustomerInformation(doc, invoiceData) {
@@ -62,16 +117,13 @@ function generateCustomerInformation(doc, invoiceData) {
     currentY += doc.heightOfString(customer.name, { width: billToWidth }) + 4;
   }
 
-  let addressText = customer.address || 'Address not provided';
-  if (typeof addressText === 'string' && addressText.trim().startsWith('{')) {
-    try {
-      const parsed = JSON.parse(addressText);
-      addressText = [parsed.line1, parsed.line2, parsed.city, parsed.state, parsed.country].filter(Boolean).join(', ');
-    } catch (e) {}
+  const addressLines = formatInvoiceAddressLines(customer.address);
+  doc.font('Helvetica');
+  for (const line of addressLines) {
+    doc.text(line, billToX, currentY, { width: billToWidth });
+    currentY += doc.heightOfString(line, { width: billToWidth }) + 3;
   }
-
-  doc.font('Helvetica').text(addressText, billToX, currentY, { width: billToWidth });
-  currentY += doc.heightOfString(addressText, { width: billToWidth }) + 4;
+  currentY += 1;
 
   if (customer.mobile) {
     doc.text(customer.mobile, billToX, currentY, { width: billToWidth });
