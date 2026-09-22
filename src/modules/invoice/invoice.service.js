@@ -427,17 +427,11 @@ const generateServiceInvoicePdf = async (bookingId) => {
 };
 
 const autoGenerateProductInvoice = async (orderId) => {
-  const existingInvoice = await Invoice.findOne({ where: { order_id: orderId } });
-  if (existingInvoice) {
-    if (existingInvoice.status !== 'Paid') {
-      existingInvoice.status = 'Paid';
-      await existingInvoice.save();
-    }
-    return existingInvoice;
-  }
-
+  const { Op } = require('sequelize');
   const order = await Order.findOne({
-    where: { order_number: orderId },
+    where: {
+      [Op.or]: [{ order_number: orderId }, { id: orderId }]
+    },
     include: [
       { model: Customer, as: 'customer' },
       { 
@@ -450,30 +444,56 @@ const autoGenerateProductInvoice = async (orderId) => {
 
   if (!order) return null;
 
-  const vendorId = (order.items && order.items.length > 0) ? order.items[0].vendor_id : null;
-  const invoice_number = 'INV' + Date.now() + Math.floor(Math.random() * 1000);
-  const grand_total = parseFloat(order.total_amount) || 0;
+  const activeItems = (order.items || []).filter(item => item.status !== 'CANCELLED');
+  const itemsToBill = activeItems.length > 0 ? activeItems : (order.items || []);
 
-  const invoice = await Invoice.create({
-    invoice_number,
-    order_id: order.order_number,
-    vendor_id: vendorId,
-    customer_name: order.customer_name || (order.customer ? order.customer.full_name : 'N/A'),
-    mobile: order.customer_contact || (order.customer ? order.customer.mobile : 'N/A'),
-    email: order.customer ? order.customer.email : '',
-    address: order.customer_address || '',
-    additional_charges: 0,
-    gst_percent: 18,
-    grand_total,
-    status: 'Paid',
-    type: 'VENDOR'
+  const subtotal = itemsToBill.reduce((sum, it) => sum + parseFloat(it.subtotal || 0), 0);
+  const taxAmount = (itemsToBill.length === (order.items || []).length && order.tax_amount) 
+    ? parseFloat(order.tax_amount) 
+    : parseFloat((subtotal * 0.18).toFixed(2));
+  const grandTotal = (itemsToBill.length === (order.items || []).length && order.total_amount) 
+    ? parseFloat(order.total_amount) 
+    : parseFloat((subtotal + taxAmount).toFixed(2));
+
+  let invoice = await Invoice.findOne({
+    where: { order_id: order.order_number },
+    include: [{ model: InvoiceItem, as: 'items' }]
   });
 
-  if (order.items && order.items.length > 0) {
-    for (const item of order.items) {
-      await InvoiceItem.create({
+  if (!invoice) {
+    const invoice_number = 'INV' + Date.now() + Math.floor(Math.random() * 1000);
+    invoice = await Invoice.create({
+      invoice_number,
+      order_id: order.order_number,
+      vendor_id: order.items[0]?.vendor_id || null,
+      customer_name: order.customer_name || (order.customer ? order.customer.full_name : 'N/A'),
+      mobile: order.customer_contact || (order.customer ? order.customer.mobile : 'N/A'),
+      email: order.customer ? order.customer.email : '',
+      address: order.customer_address || '',
+      additional_charges: 0,
+      gst_percent: 18,
+      grand_total: grandTotal,
+      status: 'Paid',
+      type: 'VENDOR'
+    });
+  } else {
+    invoice.grand_total = grandTotal;
+    invoice.status = 'Paid';
+    await invoice.save();
+  }
+
+  // Ensure all billable items are present in InvoiceItem
+  const existingInvItems = await InvoiceItem.findAll({ where: { invoice_id: invoice.id } });
+  for (const item of itemsToBill) {
+    const prodName = item.product ? item.product.name : (item.Product ? item.Product.name : 'Product');
+    const existing = existingInvItems.find(invIt => 
+      invIt.description.toLowerCase().trim() === prodName.toLowerCase().trim() ||
+      (parseFloat(invIt.rate) === parseFloat(item.price) && parseInt(invIt.qty, 10) === parseInt(item.qty, 10))
+    );
+    if (!existing) {
+      const newInvItem = await InvoiceItem.create({
         invoice_id: invoice.id,
-        description: (item.product ? item.product.name : (item.Product ? item.Product.name : 'Product')),
+        description: prodName,
         qty: item.qty || 1,
         rate: item.price || 0,
         amount: item.subtotal || 0,
@@ -482,20 +502,20 @@ const autoGenerateProductInvoice = async (orderId) => {
         hsn_code: '',
         serial_numbers: '[]'
       });
+      existingInvItems.push(newInvItem);
     }
   }
 
+  // Refresh invoice with all items for PDF generation
+  const refreshedInvItems = await InvoiceItem.findAll({ where: { invoice_id: invoice.id } });
+  const billableItems = refreshedInvItems.map(item => ({
+    item_type: 'Product',
+    description: item.description,
+    price: parseFloat(item.rate || 0),
+    qty: parseInt(item.qty || 1, 10)
+  }));
+
   try {
-    const billableItems = (order.items && order.items.length > 0) ? order.items.map(item => ({
-      item_type: 'Product',
-      description: (item.product ? item.product.name : (item.Product ? item.Product.name : 'Product')),
-      price: parseFloat(item.price || 0),
-      qty: parseInt(item.qty || 1, 10)
-    })) : [];
-
-    const subtotal = billableItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
-    const gstAmount = grand_total - subtotal;
-
     const pdfInvoiceData = {
       invoice_number: invoice.invoice_number,
       customer: {
@@ -506,8 +526,8 @@ const autoGenerateProductInvoice = async (orderId) => {
       items: billableItems,
       subtotal: subtotal,
       gst_percent: parseFloat(invoice.gst_percent || 18),
-      tax_amount: gstAmount > 0.01 ? gstAmount : 0,
-      total_amount: grand_total
+      tax_amount: taxAmount,
+      total_amount: grandTotal
     };
 
     const pdfBuffer = await generateInvoicePdfBuffer(pdfInvoiceData);
@@ -523,44 +543,95 @@ const autoGenerateProductInvoice = async (orderId) => {
 
 const generateOrderInvoicePdf = async (orderId) => {
   const orderIdStr = String(orderId || '').trim();
+  const { Op } = require('sequelize');
 
-  let invoice = await Invoice.findOne({
-    where: { order_id: orderIdStr, type: 'VENDOR' },
+  // 1. Try finding Order first
+  const order = await Order.findOne({
+    where: {
+      [Op.or]: [{ order_number: orderIdStr }, { id: orderIdStr }]
+    },
     include: [
-      { model: InvoiceItem, as: 'items' },
-      { model: Vendor, as: 'vendor' }
+      { model: Customer, as: 'customer' },
+      { 
+        model: OrderItem, 
+        as: 'items',
+        include: [{ model: Product, as: 'product' }]
+      }
     ]
   });
 
-  if (!invoice) {
-    const { Op } = require('sequelize');
-    const order = await Order.findOne({
-      where: {
-        [Op.or]: [{ order_number: orderIdStr }, { id: orderIdStr }]
-      }
+  if (order) {
+    const activeItems = (order.items || []).filter(item => item.status !== 'CANCELLED');
+    const itemsToBill = activeItems.length > 0 ? activeItems : (order.items || []);
+
+    let invoice = await Invoice.findOne({
+      where: { order_id: order.order_number },
+      include: [
+        { model: InvoiceItem, as: 'items' },
+        { model: Vendor, as: 'vendor' }
+      ]
     });
 
-    if (order) {
+    const existingItemsCount = invoice && invoice.items ? invoice.items.length : 0;
+    if (!invoice || existingItemsCount < itemsToBill.length) {
+      invoice = await autoGenerateProductInvoice(order.order_number);
       invoice = await Invoice.findOne({
-        where: { order_id: order.order_number, type: 'VENDOR' },
+        where: { id: invoice.id },
         include: [
           { model: InvoiceItem, as: 'items' },
           { model: Vendor, as: 'vendor' }
         ]
       });
+    }
 
-      if (!invoice && (order.status === 'COMPLETED' || order.status === 'Delivered' || order.payment_status === 'PAID')) {
-        await autoGenerateProductInvoice(order.order_number);
-        invoice = await Invoice.findOne({
-          where: { order_id: order.order_number, type: 'VENDOR' },
-          include: [
-            { model: InvoiceItem, as: 'items' },
-            { model: Vendor, as: 'vendor' }
-          ]
-        });
+    if (invoice) {
+      const billableItems = (invoice.items || []).map(item => ({
+        item_type: 'Product',
+        description: item.description,
+        price: parseFloat(item.rate),
+        qty: item.qty
+      }));
+
+      const subtotal = billableItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+      const grandTotal = parseFloat(invoice.grand_total);
+      const gstAmount = grandTotal - subtotal > 0 ? parseFloat((grandTotal - subtotal).toFixed(2)) : 0;
+
+      const invoiceData = {
+        invoice_number: invoice.invoice_number,
+        customer: {
+          name: invoice.customer_name || order.customer_name || (order.customer ? order.customer.full_name : 'Customer'),
+          mobile: invoice.mobile || order.customer_contact || (order.customer ? order.customer.mobile : 'N/A'),
+          address: invoice.address || order.customer_address || 'Address not provided'
+        },
+        items: billableItems,
+        subtotal: subtotal,
+        gst_percent: parseFloat(invoice.gst_percent || 18),
+        tax_amount: gstAmount > 0.01 ? gstAmount : 0,
+        total_amount: grandTotal
+      };
+
+      const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
+
+      try {
+        const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${invoice.invoice_number}`);
+        invoice.invoice_pdf_url = pdfUrl;
+        await invoice.save();
+      } catch (err) {
+        console.error('Failed to cache order invoice PDF to Cloudinary:', err);
       }
+
+      return { pdfBuffer, invoice };
     }
   }
+
+  // 2. Direct invoice number fallback
+  let invoice = await Invoice.findOne({
+    where: { invoice_number: orderIdStr },
+    include: [
+      { model: InvoiceItem, as: 'items' },
+      { model: Vendor, as: 'vendor' }
+    ]
+  });
 
   if (!invoice) {
     throw new AppError('Invoice not found for this order', 404);
@@ -591,17 +662,6 @@ const generateOrderInvoicePdf = async (orderId) => {
   };
 
   const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
-
-  if (!invoice.invoice_pdf_url) {
-    try {
-      const pdfUrl = await uploadPdfStreamToCloudinary(pdfBuffer, `invoice_${invoice.invoice_number}`);
-      invoice.invoice_pdf_url = pdfUrl;
-      await invoice.save();
-    } catch (err) {
-      console.error('Failed to cache order invoice PDF to Cloudinary:', err);
-    }
-  }
-
   return { pdfBuffer, invoice };
 };
 
