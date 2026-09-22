@@ -392,6 +392,18 @@ const getOrders = async (user, query = {}) => {
         plain.customer = null;
         return plain;
       });
+    } else if (!user || user.role === 'customer') {
+      mappedRows = rows.map(r => {
+        const plain = r.get ? r.get({ plain: true }) : (r.toJSON ? r.toJSON() : JSON.parse(JSON.stringify(r)));
+        if (plain.items) {
+          plain.items = plain.items.map(it => {
+            delete it.vendor;
+            delete it.vendor_id;
+            return it;
+          });
+        }
+        return plain;
+      });
     }
     return {
       orders: mappedRows,
@@ -417,6 +429,18 @@ const getOrders = async (user, query = {}) => {
       plain.company_name = null;
       plain.gst_number = null;
       plain.customer = null;
+      return plain;
+    });
+  } else if (!user || user.role === 'customer') {
+    return orders.map(r => {
+      const plain = r.get ? r.get({ plain: true }) : (r.toJSON ? r.toJSON() : JSON.parse(JSON.stringify(r)));
+      if (plain.items) {
+        plain.items = plain.items.map(it => {
+          delete it.vendor;
+          delete it.vendor_id;
+          return it;
+        });
+      }
       return plain;
     });
   }
@@ -478,6 +502,20 @@ const getOrderById = async (orderId, user = null) => {
       orderJson.customer = null;
       return orderJson;
     }
+  }
+
+  // Hide vendor details when viewed by customer or public
+  if (!user || user.role === 'customer') {
+    const orderJson = order.toJSON ? order.toJSON() : JSON.parse(JSON.stringify(order));
+    if (orderJson.items) {
+      orderJson.items = orderJson.items.map(item => {
+        const it = item.toJSON ? item.toJSON() : { ...item };
+        delete it.vendor;
+        delete it.vendor_id;
+        return it;
+      });
+    }
+    return orderJson;
   }
 
   return order;
@@ -573,7 +611,8 @@ const updateOrderStatus = async (orderId, updateData, user = null) => {
     }
   }
 
-  if (['ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED'].includes(updateData.status) && order.payment_status !== 'PAID') {
+  const isPaidOrRefunding = ['PAID', 'REFUND_PENDING'].includes(order.payment_status);
+  if (['ACCEPTED', 'OUT_FOR_DELIVERY', 'COMPLETED'].includes(updateData.status) && !isPaidOrRefunding) {
     throw new AppError('Cannot accept or dispatch an order with unpaid payment status', 400);
   }
 
@@ -616,7 +655,9 @@ const updateOrderStatus = async (orderId, updateData, user = null) => {
           }
 
           const reasonNote = updateData.reason ? updateData.reason.trim() : 'Item unavailable';
-          const formattedReason = `Rejected by ${entityName} (${reasonNote})`;
+          const adminNotificationReason = `Rejected by ${entityName} (${reasonNote})`;
+          // Clean reason for customer: do not expose vendor names
+          const customerRefundReason = reasonNote;
 
           // Check if all items in the order are now cancelled
           const allItemsAfter = await OrderItem.findAll({ where: { order_id: order.id } });
@@ -632,17 +673,22 @@ const updateOrderStatus = async (orderId, updateData, user = null) => {
             );
           }
 
-          order.payment_status = 'REFUND_PENDING';
+          if (allCancelled) {
+            order.payment_status = 'REFUND_PENDING';
+          } else {
+            // Retain PAID status for the remaining active items so they can be fulfilled
+            order.payment_status = 'PAID';
+          }
           order.refund_status = 'REQUESTED';
           order.refund_amount = newRefundAmount;
-          order.refund_reason = formattedReason;
+          order.refund_reason = customerRefundReason;
 
           // Alert Admin about queued refund
           try {
             const notificationService = require('../notification/notification.service');
             notificationService.createNotification({
               title: 'Refund Queued: Item Rejected',
-              message: `${formattedReason}. Refund of ₹${cancelledTotalWithTax.toFixed(2)} (incl. GST) queued for Order #${order.order_number}`,
+              message: `${adminNotificationReason}. Refund of ₹${cancelledTotalWithTax.toFixed(2)} (incl. GST) queued for Order #${order.order_number}`,
               type: 'REFUND',
               action_url: '/admin/payments?tab=refunds',
               target_role: 'admin',
@@ -672,26 +718,26 @@ const updateOrderStatus = async (orderId, updateData, user = null) => {
 
     // Sync parent order.status as an aggregate
     const allItems = await OrderItem.findAll({ where: { order_id: order.id } });
-    const statuses = allItems.map(i => i.status);
-    if (statuses.length > 0) {
-      if (statuses.every(s => s === 'COMPLETED')) {
+    const activeItems = allItems.filter(i => i.status !== 'CANCELLED');
+    if (activeItems.length > 0) {
+      if (activeItems.every(i => i.status === 'COMPLETED')) {
         order.status = 'COMPLETED';
-      } else if (statuses.every(s => s === 'CANCELLED')) {
-        order.status = 'CANCELLED';
-      } else if (statuses.some(s => s === 'OUT_FOR_DELIVERY')) {
+      } else if (activeItems.some(i => i.status === 'OUT_FOR_DELIVERY')) {
         order.status = 'OUT_FOR_DELIVERY';
-      } else if (statuses.some(s => s === 'ACCEPTED')) {
+      } else if (activeItems.some(i => i.status === 'ACCEPTED')) {
         order.status = 'ACCEPTED';
       } else {
         order.status = 'NEW';
       }
+    } else if (allItems.length > 0) {
+      order.status = 'CANCELLED';
     } else {
       order.status = updateData.status;
     }
   }
   await order.save();
 
-  if (updateData.status === 'COMPLETED') {
+  if (order.status === 'COMPLETED' || updateData.status === 'COMPLETED') {
     try {
       const invoiceService = require('../invoice/invoice.service');
       await invoiceService.autoGenerateProductInvoice(order.order_number);
@@ -858,7 +904,13 @@ const processRefund = async (orderId, refundPayload, adminUser) => {
     finalRefundId = referenceNote ? referenceNote.trim() : `MANUAL-REF-${Date.now()}`;
   }
 
-  order.payment_status = 'REFUNDED';
+  const allItemsForRefund = await OrderItem.findAll({ where: { order_id: order.id } });
+  const allCancelledForRefund = allItemsForRefund.every(i => i.status === 'CANCELLED');
+  if (allCancelledForRefund || parsedAmount >= parseFloat(order.total_amount)) {
+    order.payment_status = 'REFUNDED';
+  } else {
+    order.payment_status = 'PAID';
+  }
   order.refund_status = 'PROCESSED';
   order.refund_id = finalRefundId;
   order.refund_amount = parsedAmount;
