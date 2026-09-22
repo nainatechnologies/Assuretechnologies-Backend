@@ -5,8 +5,31 @@ const Category = require('../category/category.model');
 const { hashPassword } = require('../../utils/hash');
 const AppError = require('../../utils/AppError');
 
-const getPartners = async () => {
+const getPartners = async (filters = {}) => {
+  const whereClause = {};
+
+  if (filters.date && filters.time_slot) {
+    const ServiceBooking = require('../service/serviceBooking.model');
+    const { Op } = require('sequelize');
+    const busyPartners = await ServiceBooking.findAll({
+      where: {
+        scheduled_date: filters.date,
+        scheduled_time_slot: filters.time_slot,
+        status: { [Op.notIn]: ['COMPLETED', 'CANCELLED'] },
+        assigned_partner_id: { [Op.ne]: null }
+      },
+      attributes: ['assigned_partner_id'],
+      raw: true
+    });
+    
+    const busyIds = busyPartners.map(b => b.assigned_partner_id);
+    if (busyIds.length > 0) {
+      whereClause.id = { [Op.notIn]: busyIds };
+    }
+  }
+
   return await Partner.findAll({
+    where: whereClause,
     attributes: { exclude: ['password_hash'] },
     include: [{ model: PartnerType, as: 'partnerType' }],
     order: [['createdAt', 'DESC']]

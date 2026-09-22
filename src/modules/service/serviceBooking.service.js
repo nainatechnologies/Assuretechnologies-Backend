@@ -638,6 +638,25 @@ const assignBooking = async (booking_id, assignmentData) => {
     if (!tech) throw new AppError('Technician not found', 404);
     if (!tech.is_active) throw new AppError('This technician account is currently inactive', 400);
     if (!tech.is_online) throw new AppError('This technician is currently OFF duty and cannot be assigned', 400);
+
+    // Prevent double booking
+    const { Op } = require('sequelize');
+    const existingBooking = await ServiceBooking.findOne({
+      where: {
+        assigned_technician_id: technician_id,
+        scheduled_date: booking.scheduled_date,
+        scheduled_time_slot: booking.scheduled_time_slot,
+        id: { [Op.ne]: booking_id }, // Exclude current booking
+        status: {
+          [Op.notIn]: ['COMPLETED', 'CANCELLED']
+        }
+      }
+    });
+
+    if (existingBooking) {
+      throw new AppError('This technician is already assigned to another service for this date and time slot.', 400);
+    }
+
     booking.assigned_technician_id = technician_id;
   }
   if (partner_id) {
@@ -645,6 +664,25 @@ const assignBooking = async (booking_id, assignmentData) => {
     if (!partner) throw new AppError('Partner not found', 404);
     if (!partner.is_active) throw new AppError('This partner account is currently inactive', 400);
     if (!partner.is_online) throw new AppError('This partner is currently OFF duty and cannot be assigned', 400);
+
+    // Prevent double booking for partner
+    const { Op } = require('sequelize');
+    const existingPartnerBooking = await ServiceBooking.findOne({
+      where: {
+        assigned_partner_id: partner_id,
+        scheduled_date: booking.scheduled_date,
+        scheduled_time_slot: booking.scheduled_time_slot,
+        id: { [Op.ne]: booking_id },
+        status: {
+          [Op.notIn]: ['COMPLETED', 'CANCELLED']
+        }
+      }
+    });
+
+    if (existingPartnerBooking) {
+      throw new AppError('This partner is already assigned to another service for this date and time slot.', 400);
+    }
+
     booking.assigned_partner_id = partner_id;
   }
 

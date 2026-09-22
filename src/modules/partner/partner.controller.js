@@ -2,7 +2,8 @@ const partnerService = require('./partner.service');
 const asyncHandler = require('../../utils/asyncHandler');
 
 const getPartners = asyncHandler(async (req, res) => {
-  const partners = await partnerService.getPartners();
+  const { date, time_slot } = req.query;
+  const partners = await partnerService.getPartners({ date, time_slot });
   res.status(200).json({ success: true, data: partners });
 });
 

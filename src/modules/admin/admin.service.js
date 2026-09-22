@@ -57,6 +57,27 @@ const getTechnicians = async (page = 1, limit = 10, search = '', filters = {}) =
     });
   }
 
+  if (filters.date && filters.time_slot) {
+    const ServiceBooking = require('../service/serviceBooking.model');
+    const busyTechnicians = await ServiceBooking.findAll({
+      where: {
+        scheduled_date: filters.date,
+        scheduled_time_slot: filters.time_slot,
+        status: { [Op.notIn]: ['COMPLETED', 'CANCELLED'] },
+        assigned_technician_id: { [Op.ne]: null }
+      },
+      attributes: ['assigned_technician_id'],
+      raw: true
+    });
+    
+    const busyIds = busyTechnicians.map(b => b.assigned_technician_id);
+    if (busyIds.length > 0) {
+      andConditions.push({
+        id: { [Op.notIn]: busyIds }
+      });
+    }
+  }
+
   if (search) {
     andConditions.push({
       [Op.or]: [
