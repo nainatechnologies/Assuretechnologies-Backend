@@ -106,6 +106,15 @@ const getAvailablePartnersForBooking = asyncHandler(async (req, res) => {
   });
 });
 
+const getAvailableTechniciansForBooking = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const availableTechnicians = await bookingService.getAvailableTechniciansForBooking(id);
+  res.status(200).json({
+    success: true,
+    data: availableTechnicians
+  });
+});
+
 const getPartnerBookings = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -149,6 +158,7 @@ module.exports = {
   getTechnicianBookings,
   getTechnicianBookingDetails,
   handleTechnicianAction,
+  getAvailableTechniciansForBooking,
   getAvailablePartnersForBooking,
   getPartnerBookings,
   getPartnerBookingDetails,

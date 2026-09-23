@@ -127,6 +127,14 @@ router.get(
   bookingController.getAvailablePartnersForBooking
 );
 
+// Get available technicians for a specific booking (admin)
+router.get(
+  '/admin/service-bookings/:id/available-technicians',
+  authMiddleware(['admin']),
+  validateParams(updateBookingStatusParamSchema),
+  bookingController.getAvailableTechniciansForBooking
+);
+
 // ----------------------------------------------------
 // TECHNICIAN ROUTES
 // ----------------------------------------------------
