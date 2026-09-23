@@ -888,6 +888,55 @@ const getAvailablePartnersForBooking = async (booking_id) => {
   return availablePartners;
 };
 
+const getAvailableTechniciansForBooking = async (booking_id) => {
+  const booking = await ServiceBooking.findByPk(booking_id, {
+    include: [{ model: Service, as: 'Service' }]
+  });
+
+  if (!booking) throw new AppError('Booking not found', 404);
+  if (!booking.Service) throw new AppError('Service associated with this booking not found', 404);
+
+  const Technician = require('../technician/technician.model');
+  
+  // Fetch active and online technicians
+  const { Op } = require('sequelize');
+  const Sequelize = require('sequelize');
+  
+  const techWhere = { 
+    is_active: true,
+    is_online: true
+  };
+  
+  if (booking.assigned_technician_id) {
+    techWhere.id = { [Op.ne]: booking.assigned_technician_id };
+  }
+
+  // Ensure the technician provides the specific service required by the booking
+  techWhere[Op.and] = [
+    Sequelize.where(
+      Sequelize.cast(Sequelize.col('services_provided'), 'CHAR'),
+      { [Op.like]: '%' + booking.service_id + '%' }
+    )
+  ];
+
+  const matchingTechnicians = await Technician.findAll({
+    where: techWhere,
+    attributes: { exclude: ['password_hash'] }
+  });
+
+  // Filter in memory for the pincode for maximum accuracy and cross-database compatibility
+  const bookingPincode = booking.pincode;
+  const availableTechnicians = matchingTechnicians.filter(tech => {
+    let areas = tech.service_pincodes || [];
+    if (typeof areas === 'string') {
+      try { areas = JSON.parse(areas); } catch (e) { areas = []; }
+    }
+    return Array.isArray(areas) && areas.includes(bookingPincode);
+  });
+
+  return availableTechnicians;
+};
+
 const getPartnerBookings = async (partner_id, page = 1, limit = 10) => {
   const offset = (page - 1) * limit;
   const { count, rows } = await ServiceBooking.findAndCountAll({
@@ -1049,6 +1098,7 @@ module.exports = {
   getTechnicianBookings,
   getTechnicianBookingDetails,
   handleTechnicianAction,
+  getAvailableTechniciansForBooking,
   getAvailablePartnersForBooking,
   getPartnerBookings,
   getPartnerBookingDetails,
