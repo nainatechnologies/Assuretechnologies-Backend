@@ -16,6 +16,10 @@ const allowedOrigins = [
   'https://localhost',     // Capacitor Android
   'http://localhost',      // Capacitor Android alternate
   'capacitor://localhost', // Capacitor iOS
+  // Deployed Hostinger URLs
+  'https://lightslategrey-rook-993968.hostingersite.com',
+  'https://pink-wildcat-563887.hostingersite.com',
+  'https://lightgoldenrodyellow-moose-158912.hostingersite.com',
 ];
 
 // Middleware
