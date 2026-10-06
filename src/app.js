@@ -18,9 +18,9 @@ const allowedOrigins = [
   'capacitor://localhost', // Capacitor iOS
   // Deployed Hostinger URLs
   // 'https://www.assure-adminpanel.com'
-  // 'https://lightslategrey-rook-993968.hostingersite.com',
+  'https://lightslategrey-rook-993968.hostingersite.com',
   'https://pink-wildcat-563887.hostingersite.com',
-  // 'https://lightgoldenrodyellow-moose-158912.hostingersite.com',
+  'https://lightgoldenrodyellow-moose-158912.hostingersite.com',
 ];
 
 // Middleware
@@ -33,7 +33,10 @@ app.use(cors({
       allowedOrigins.indexOf(origin) !== -1 ||
       origin.startsWith('capacitor://') ||
       origin.startsWith('http://192.168.') ||
-      origin.startsWith('http://10.0.2.2')
+      origin.startsWith('http://10.0.2.2') ||
+      origin.startsWith('http://localhost:') ||
+      origin.startsWith('https://localhost:') ||
+      origin.endsWith('.hostingersite.com')
     ) {
       return callback(null, true);
     }

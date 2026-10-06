@@ -9,11 +9,11 @@ const login = asyncHandler(async (req, res) => {
   res.cookie('admin_token', data.token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 
-  res.status(200).json({ success: true, message: 'Login successful', data: { user: data.user } });
+  res.status(200).json({ success: true, message: 'Login successful', data: { user: data.user, token: data.token } });
 });
 
 module.exports = { login };
